@@ -1,0 +1,3 @@
+[submodule "janome"]
+	path = janome
+	url = https://github.com/mocobeta/janome
