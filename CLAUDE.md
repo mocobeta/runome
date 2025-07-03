@@ -51,3 +51,7 @@ The project aims to port janome library to Rust and provide the very same API to
 
 ## Testing Strategy
 - Rust: Standard `cargo test` with unit tests in `src/lib.rs`
+
+## Development policy
+- Always run code formatter before making a commit.
+- Always run clippy linter before making a commit.

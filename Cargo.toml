@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+fst = "0.4.7"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+csv = "1.3"
+anyhow = "1.0"
+encoding_rs = "0.8"
+glob = "0.3"
+env_logger = "0.11"
