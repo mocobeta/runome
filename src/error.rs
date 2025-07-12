@@ -1,0 +1,31 @@
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum RunomeError {
+    // Dictionary loading errors
+    #[error("Dictionary directory not found: {path}")]
+    DictDirectoryNotFound { path: String },
+
+    #[error("Required dictionary file missing: {filename}")]
+    DictFileMissing { filename: String },
+
+    #[error("Failed to deserialize dictionary {component}: {source}")]
+    DictDeserializationError {
+        component: String,
+        #[source]
+        source: bincode::Error,
+    },
+
+    #[error("Invalid connection matrix access: left_id={left_id}, right_id={right_id}")]
+    InvalidConnectionId { left_id: u16, right_id: u16 },
+
+    #[error("Dictionary validation failed: {reason}")]
+    DictValidationError { reason: String },
+
+    // General IO errors
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+    // Future: Add variants for other components (FST, tokenizer, etc.)
+}
+
+pub type Result<T> = std::result::Result<T, RunomeError>;

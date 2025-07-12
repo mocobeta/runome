@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
 use anyhow::Result;
+use std::path::{Path, PathBuf};
 
-pub mod types;
 pub mod build;
+pub mod types;
 
 pub use types::*;
 
