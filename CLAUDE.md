@@ -59,6 +59,7 @@ When you make changes, follow the instructions below.
 - Run clippy linter to check if there are no errors and warnings. If there are errors or warnings, try to fix them.
 - Follow design docs in 'planning' folder.
 - Proceed with the smallest possible steps.
+- Do not include println!() in test cases.
 
 ## Development steps
 1. Review design and implementation plan docs in /planning folder. If there is no planning doc for the changes you are going to make, make a proposal to create it.
