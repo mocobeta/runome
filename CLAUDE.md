@@ -60,6 +60,7 @@ When you make changes, follow the instructions below.
 - Follow design docs in 'planning' folder.
 - Proceed with the smallest possible steps.
 - Do not include println!() in test cases.
+- Do not include emoji characters in git commit messages.
 
 ## Development steps
 1. Review design and implementation plan docs in /planning folder. If there is no planning doc for the changes you are going to make, make a proposal to create it.
