@@ -64,7 +64,7 @@ When you make changes, follow the instructions below.
 1. Review design and implementation plan docs in /planning folder. If there is no planning doc for the changes you are going to make, make a proposal to create it.
 2. Your code should be consistent with Janome Python code. Examine the corresponding Janome Python source and test code when you add new modules, structs, methods, test cases, and so on.
 3. When you add new methods,
-   1. Create empty methods with the correct method signatures without actual code.
+   1. Create empty methods. An empty method should have the correct method signatures but no actual code.
    2. Prepare test cases to test the methods you are going to make. Ask the user to review the test cases.
    3. Implement the methods so that all test cases pass.
 4. When you make changes to existing methods,
