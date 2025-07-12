@@ -8,7 +8,7 @@ use fst::MapBuilder;
 use log::info;
 
 use super::DictionaryBuilder;
-use super::types::{
+use crate::dictionary::types::{
     CharCategory, CharDefinitions, CodePointRange, ConnectionMatrix, DictEntry, UnknownEntries,
     UnknownEntry,
 };

@@ -2,9 +2,6 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 pub mod build;
-pub mod types;
-
-pub use types::*;
 
 pub struct DictionaryBuilder {
     pub mecab_dir: PathBuf,
