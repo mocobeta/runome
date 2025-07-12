@@ -215,7 +215,7 @@ mod tests {
         println!(
             "Connection matrix dimensions: {}x{}",
             dict.connections.len(),
-            dict.connections.get(0).map_or(0, |row| row.len())
+            dict.connections.first().map_or(0, |row| row.len())
         );
         println!("Character categories: {}", dict.char_defs.categories.len());
         println!(
