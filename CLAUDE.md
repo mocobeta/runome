@@ -54,6 +54,6 @@ The project aims to port janome library to Rust and provide the very same API to
 
 ## Development policy
 - Always run cargo fmt before making a commit.
-- Always run clippy linter before making a commit.
+- Always run clippy linter and fix all errors and warnings before making a commit.
 - Follow design docs in 'planning' folder.
 - Proceed with the smallest possible steps.
