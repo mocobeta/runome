@@ -70,3 +70,4 @@ When you make changes, follow the instructions below.
 4. When you make changes to existing methods,
    1. Prepare test cases to test the changes you are going to make. Ask the user to review the test cases.
    2. Implement the changes so that all test cases pass.
+5. When you make any changes, always review the existing code and consider utilizing them effectively.
