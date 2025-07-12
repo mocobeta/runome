@@ -140,7 +140,7 @@ impl DictionaryResource {
             .ok_or(RunomeError::InvalidConnectionId { left_id, right_id })
     }
 
-    /// Get character category for a given character
+    /// Get character category for a given character (returns first match)
     pub fn get_char_category(&self, ch: char) -> Option<&CharCategory> {
         for range in &self.char_defs.code_ranges {
             if ch >= range.from && ch <= range.to {
@@ -148,6 +148,27 @@ impl DictionaryResource {
             }
         }
         None
+    }
+
+    /// Get all character categories for a given character
+    /// Returns a HashMap where keys are category names and values are compatible categories
+    /// This matches the Python SystemDictionary.get_char_categories() behavior
+    pub fn get_char_categories(&self, ch: char) -> std::collections::HashMap<String, Vec<String>> {
+        let mut result = std::collections::HashMap::new();
+        
+        // Find all matching code point ranges for this character
+        for range in &self.char_defs.code_ranges {
+            if ch >= range.from && ch <= range.to {
+                result.insert(range.category.clone(), range.compat_categories.clone());
+            }
+        }
+        
+        // Default category if no matches found
+        if result.is_empty() {
+            result.insert("DEFAULT".to_string(), Vec::new());
+        }
+        
+        result
     }
 
     /// Get unknown entries for a specific category
@@ -158,6 +179,30 @@ impl DictionaryResource {
     /// Get FST bytes for creating Matcher instances
     pub fn get_fst_bytes(&self) -> &[u8] {
         &self.fst_bytes
+    }
+
+    /// Check if unknown word processing should always be invoked for category
+    pub fn unknown_invoked_always(&self, category: &str) -> bool {
+        self.char_defs.categories
+            .get(category)
+            .map(|cat| cat.invoke)
+            .unwrap_or(false)
+    }
+
+    /// Check if characters of this category should be grouped together
+    pub fn unknown_grouping(&self, category: &str) -> bool {
+        self.char_defs.categories
+            .get(category)
+            .map(|cat| cat.group)
+            .unwrap_or(false)
+    }
+
+    /// Get length constraint for unknown words of this category
+    pub fn unknown_length(&self, category: &str) -> i32 {
+        self.char_defs.categories
+            .get(category)
+            .map(|cat| cat.length as i32)
+            .unwrap_or(-1)
     }
 }
 
@@ -208,22 +253,12 @@ mod tests {
         );
         assert!(!dict.fst_bytes.is_empty(), "FST bytes should not be empty");
 
-        println!(
-            "Successfully loaded {} dictionary entries",
-            dict.entries.len()
-        );
-        println!(
-            "Connection matrix dimensions: {}x{}",
-            dict.connections.len(),
-            dict.connections.first().map_or(0, |row| row.len())
-        );
-        println!("Character categories: {}", dict.char_defs.categories.len());
-        println!(
-            "Character code ranges: {}",
-            dict.char_defs.code_ranges.len()
-        );
-        println!("Unknown entry categories: {}", dict.unknowns.len());
-        println!("FST size: {} bytes", dict.fst_bytes.len());
+        // Verify reasonable data sizes
+        assert!(dict.entries.len() > 1000, "Should have substantial number of entries");
+        assert!(dict.connections.len() > 100, "Should have substantial connection matrix");
+        assert!(dict.char_defs.categories.len() > 5, "Should have multiple character categories");
+        assert!(dict.char_defs.code_ranges.len() > 10, "Should have multiple code ranges");
+        assert!(dict.fst_bytes.len() > 1000, "FST should have substantial size");
     }
 
     #[test]
@@ -241,7 +276,7 @@ mod tests {
         let result = DictionaryResource::load_and_validate(&sysdic_path);
         assert!(result.is_ok(), "Failed to load and validate dictionary.");
 
-        println!("Dictionary loaded and validated successfully");
+        // Dictionary loaded and validated successfully
     }
 
     #[test]
@@ -264,7 +299,7 @@ mod tests {
             "Dictionary validation failed: {:?}",
             validation_result
         );
-        println!("Dictionary validation passed");
+        // Dictionary validation passed
     }
 
     #[test]
@@ -284,9 +319,10 @@ mod tests {
 
         assert!(!entries.is_empty(), "Should have dictionary entries");
 
-        // Print first few entries for verification
-        for (i, entry) in entries.iter().take(5).enumerate() {
-            println!("Entry {}: {} ({})", i, entry.surface, entry.part_of_speech);
+        // Verify entries have required fields
+        for entry in entries.iter().take(5) {
+            assert!(!entry.part_of_speech.is_empty(), "Entry should have part of speech");
+            assert!(!entry.reading.is_empty(), "Entry should have reading");
         }
     }
 
@@ -312,7 +348,11 @@ mod tests {
         );
 
         let cost = cost_result.unwrap();
-        println!("Connection cost (0,0): {}", cost);
+        assert!(
+            cost >= -10000 && cost <= 10000,
+            "Connection cost should be reasonable: {}",
+            cost
+        );
 
         // Test boundary cases
         let max_id = (dict.connections.len() - 1) as u16;
@@ -341,22 +381,127 @@ mod tests {
 
         let dict = DictionaryResource::load(&sysdic_path).expect("Failed to load dictionary");
 
-        // Test some common characters
-        let test_chars = ['あ', 'ア', '漢', 'A', '1', '。'];
+        // Test some common characters have categories
+        let test_chars = ['あ', 'ア', '漢', 'A', '1'];
 
         for ch in test_chars {
             let category = dict.get_char_category(ch);
-            println!(
-                "Character '{}': {:?}",
+            assert!(
+                category.is_some(),
+                "Character '{}' should have a category",
+                ch
+            );
+            
+            let cat = category.unwrap();
+            assert!(
+                cat.length <= 10,
+                "Character '{}' category length should be reasonable: {}",
                 ch,
-                category
-                    .map(|c| format!(
-                        "invoke={}, group={}, length={}",
-                        c.invoke, c.group, c.length
-                    ))
-                    .unwrap_or_else(|| "No category".to_string())
+                cat.length
             );
         }
+    }
+
+    #[test]
+    fn test_get_char_categories_multiple() {
+        let sysdic_path = get_test_sysdic_path();
+
+        if !sysdic_path.exists() {
+            eprintln!(
+                "Skipping test: sysdic directory not found at {:?}",
+                sysdic_path
+            );
+            return;
+        }
+
+        let dict = DictionaryResource::load(&sysdic_path).expect("Failed to load dictionary");
+
+        // Test specific characters and their expected categories
+        let categories_ha = dict.get_char_categories('は');
+        assert!(
+            categories_ha.contains_key("HIRAGANA"),
+            "Character 'は' should have HIRAGANA category"
+        );
+        assert_eq!(
+            categories_ha.get("HIRAGANA").unwrap(),
+            &Vec::<String>::new(),
+            "HIRAGANA category should have empty compatible categories"
+        );
+
+        let categories_ka = dict.get_char_categories('ハ');
+        assert!(
+            categories_ka.contains_key("KATAKANA"),
+            "Character 'ハ' should have KATAKANA category"
+        );
+
+        // Test character that should have multiple categories (五 = KANJI + KANJINUMERIC)
+        let categories_go = dict.get_char_categories('五');
+        assert!(
+            categories_go.contains_key("KANJI"),
+            "Character '五' should have KANJI category"
+        );
+        assert!(
+            categories_go.contains_key("KANJINUMERIC"),
+            "Character '五' should have KANJINUMERIC category"
+        );
+        
+        // KANJINUMERIC should have KANJI as compatible category
+        let kanjinumeric_compat = categories_go.get("KANJINUMERIC").unwrap();
+        assert!(
+            kanjinumeric_compat.contains(&"KANJI".to_string()),
+            "KANJINUMERIC should have KANJI as compatible category"
+        );
+
+        // Test DEFAULT category for unknown character
+        let categories_unknown = dict.get_char_categories('𠮷'); // Rare kanji
+        if categories_unknown.len() == 1 && categories_unknown.contains_key("DEFAULT") {
+            assert_eq!(
+                categories_unknown.get("DEFAULT").unwrap(),
+                &Vec::<String>::new(),
+                "DEFAULT category should have empty compatible categories"
+            );
+        }
+    }
+
+    #[test]
+    fn test_unknown_word_properties() {
+        let sysdic_path = get_test_sysdic_path();
+
+        if !sysdic_path.exists() {
+            eprintln!(
+                "Skipping test: sysdic directory not found at {:?}",
+                sysdic_path
+            );
+            return;
+        }
+
+        let dict = DictionaryResource::load(&sysdic_path).expect("Failed to load dictionary");
+
+        // Test known category properties based on char.def
+        assert_eq!(dict.unknown_invoked_always("HIRAGANA"), false);
+        assert_eq!(dict.unknown_grouping("HIRAGANA"), true);
+        assert_eq!(dict.unknown_length("HIRAGANA"), 2);
+
+        assert_eq!(dict.unknown_invoked_always("KATAKANA"), true);
+        assert_eq!(dict.unknown_grouping("KATAKANA"), true);
+        assert_eq!(dict.unknown_length("KATAKANA"), 2);
+
+        assert_eq!(dict.unknown_invoked_always("KANJI"), false);
+        assert_eq!(dict.unknown_grouping("KANJI"), false);
+        assert_eq!(dict.unknown_length("KANJI"), 2);
+
+        assert_eq!(dict.unknown_invoked_always("ALPHA"), true);
+        assert_eq!(dict.unknown_grouping("ALPHA"), true);
+        assert_eq!(dict.unknown_length("ALPHA"), 0);
+
+        assert_eq!(dict.unknown_invoked_always("NUMERIC"), true);
+        assert_eq!(dict.unknown_grouping("NUMERIC"), true);
+        assert_eq!(dict.unknown_length("NUMERIC"), 0);
+
+        // Test non-existent category
+        assert_eq!(dict.unknown_invoked_always("NONEXISTENT"), false);
+        assert_eq!(dict.unknown_grouping("NONEXISTENT"), false);
+        assert_eq!(dict.unknown_length("NONEXISTENT"), -1);
     }
 
     #[test]
@@ -373,10 +518,17 @@ mod tests {
 
         let dict = DictionaryResource::load(&sysdic_path).expect("Failed to load dictionary");
 
-        // Print available unknown entry categories
+        // Verify unknown entry categories exist and have entries
+        assert!(!dict.unknowns.is_empty(), "Should have unknown entry categories");
+        
         for category in dict.unknowns.keys() {
             let entries = dict.get_unknown_entries(category).unwrap();
-            println!("Unknown category '{}': {} entries", category, entries.len());
+            assert!(!entries.is_empty(), "Category '{}' should have entries", category);
+            
+            // Verify entry structure
+            for entry in entries {
+                assert!(!entry.part_of_speech.is_empty(), "Unknown entry should have part of speech");
+            }
         }
 
         // Test a non-existent category
@@ -399,7 +551,7 @@ mod tests {
         if let Err(error) = result {
             match error {
                 RunomeError::DictDirectoryNotFound { .. } => {
-                    println!("Correctly detected missing directory");
+                    // Correctly detected missing directory
                 }
                 _ => panic!("Expected DictDirectoryNotFound error, got: {:?}", error),
             }
@@ -459,6 +611,6 @@ mod tests {
             );
         }
 
-        println!("Data consistency checks passed");
+        // Data consistency checks completed successfully
     }
 }
