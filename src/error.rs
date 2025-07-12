@@ -22,6 +22,12 @@ pub enum RunomeError {
     #[error("Dictionary validation failed: {reason}")]
     DictValidationError { reason: String },
 
+    #[error("Character classification error: {reason}")]
+    CharClassificationError { reason: String },
+
+    #[error("SystemDictionary initialization failed: {reason}")]
+    SystemDictInitError { reason: String },
+
     // General IO errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

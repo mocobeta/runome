@@ -157,6 +157,11 @@ impl RAMDictionary {
 
         Ok(Self { resource, matcher })
     }
+
+    /// Get reference to the embedded DictionaryResource
+    pub fn get_resource(&self) -> &DictionaryResource {
+        &self.resource
+    }
 }
 
 impl Dictionary for RAMDictionary {

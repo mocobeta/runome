@@ -155,19 +155,19 @@ impl DictionaryResource {
     /// This matches the Python SystemDictionary.get_char_categories() behavior
     pub fn get_char_categories(&self, ch: char) -> std::collections::HashMap<String, Vec<String>> {
         let mut result = std::collections::HashMap::new();
-        
+
         // Find all matching code point ranges for this character
         for range in &self.char_defs.code_ranges {
             if ch >= range.from && ch <= range.to {
                 result.insert(range.category.clone(), range.compat_categories.clone());
             }
         }
-        
+
         // Default category if no matches found
         if result.is_empty() {
             result.insert("DEFAULT".to_string(), Vec::new());
         }
-        
+
         result
     }
 
@@ -183,7 +183,8 @@ impl DictionaryResource {
 
     /// Check if unknown word processing should always be invoked for category
     pub fn unknown_invoked_always(&self, category: &str) -> bool {
-        self.char_defs.categories
+        self.char_defs
+            .categories
             .get(category)
             .map(|cat| cat.invoke)
             .unwrap_or(false)
@@ -191,7 +192,8 @@ impl DictionaryResource {
 
     /// Check if characters of this category should be grouped together
     pub fn unknown_grouping(&self, category: &str) -> bool {
-        self.char_defs.categories
+        self.char_defs
+            .categories
             .get(category)
             .map(|cat| cat.group)
             .unwrap_or(false)
@@ -199,7 +201,8 @@ impl DictionaryResource {
 
     /// Get length constraint for unknown words of this category
     pub fn unknown_length(&self, category: &str) -> i32 {
-        self.char_defs.categories
+        self.char_defs
+            .categories
             .get(category)
             .map(|cat| cat.length as i32)
             .unwrap_or(-1)
@@ -254,11 +257,26 @@ mod tests {
         assert!(!dict.fst_bytes.is_empty(), "FST bytes should not be empty");
 
         // Verify reasonable data sizes
-        assert!(dict.entries.len() > 1000, "Should have substantial number of entries");
-        assert!(dict.connections.len() > 100, "Should have substantial connection matrix");
-        assert!(dict.char_defs.categories.len() > 5, "Should have multiple character categories");
-        assert!(dict.char_defs.code_ranges.len() > 10, "Should have multiple code ranges");
-        assert!(dict.fst_bytes.len() > 1000, "FST should have substantial size");
+        assert!(
+            dict.entries.len() > 1000,
+            "Should have substantial number of entries"
+        );
+        assert!(
+            dict.connections.len() > 100,
+            "Should have substantial connection matrix"
+        );
+        assert!(
+            dict.char_defs.categories.len() > 5,
+            "Should have multiple character categories"
+        );
+        assert!(
+            dict.char_defs.code_ranges.len() > 10,
+            "Should have multiple code ranges"
+        );
+        assert!(
+            dict.fst_bytes.len() > 1000,
+            "FST should have substantial size"
+        );
     }
 
     #[test]
@@ -321,7 +339,10 @@ mod tests {
 
         // Verify entries have required fields
         for entry in entries.iter().take(5) {
-            assert!(!entry.part_of_speech.is_empty(), "Entry should have part of speech");
+            assert!(
+                !entry.part_of_speech.is_empty(),
+                "Entry should have part of speech"
+            );
             assert!(!entry.reading.is_empty(), "Entry should have reading");
         }
     }
@@ -391,7 +412,7 @@ mod tests {
                 "Character '{}' should have a category",
                 ch
             );
-            
+
             let cat = category.unwrap();
             assert!(
                 cat.length <= 10,
@@ -444,7 +465,7 @@ mod tests {
             categories_go.contains_key("KANJINUMERIC"),
             "Character '五' should have KANJINUMERIC category"
         );
-        
+
         // KANJINUMERIC should have KANJI as compatible category
         let kanjinumeric_compat = categories_go.get("KANJINUMERIC").unwrap();
         assert!(
@@ -519,15 +540,25 @@ mod tests {
         let dict = DictionaryResource::load(&sysdic_path).expect("Failed to load dictionary");
 
         // Verify unknown entry categories exist and have entries
-        assert!(!dict.unknowns.is_empty(), "Should have unknown entry categories");
-        
+        assert!(
+            !dict.unknowns.is_empty(),
+            "Should have unknown entry categories"
+        );
+
         for category in dict.unknowns.keys() {
             let entries = dict.get_unknown_entries(category).unwrap();
-            assert!(!entries.is_empty(), "Category '{}' should have entries", category);
-            
+            assert!(
+                !entries.is_empty(),
+                "Category '{}' should have entries",
+                category
+            );
+
             // Verify entry structure
             for entry in entries {
-                assert!(!entry.part_of_speech.is_empty(), "Unknown entry should have part of speech");
+                assert!(
+                    !entry.part_of_speech.is_empty(),
+                    "Unknown entry should have part of speech"
+                );
             }
         }
 
