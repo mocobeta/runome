@@ -57,6 +57,7 @@ When you make changes, follow the instructions below.
 - Run cargo build --all-targets to check if the entire codebase is successfully compiled.
 - Run cargo fmt to make sure all code is formatted.
 - Run clippy linter to check if there are no errors and warnings. If there are errors or warnings, try to fix them.
+- Make sure "cargo test" passes before making a git commit.
 - Follow design docs in 'planning' folder.
 - Proceed with the smallest possible steps.
 - Do not include println!() in test cases.
