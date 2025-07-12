@@ -154,6 +154,11 @@ impl DictionaryResource {
     pub fn get_unknown_entries(&self, category: &str) -> Option<&[UnknownEntry]> {
         self.unknowns.get(category).map(|v| v.as_slice())
     }
+
+    /// Get FST bytes for creating Matcher instances
+    pub fn get_fst_bytes(&self) -> &[u8] {
+        &self.fst_bytes
+    }
 }
 
 #[cfg(test)]
