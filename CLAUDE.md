@@ -53,7 +53,19 @@ The project aims to port janome library to Rust and provide the very same API to
 - Rust: Standard `cargo test` with unit tests in `src/lib.rs`
 
 ## Development policy
-- Always run cargo fmt before making a commit.
-- Always run clippy linter and fix all errors and warnings before making a commit.
+- Run cargo build --all-targets to check if all the codebase is successfully compiled when you make changes.
+- Run cargo fmt when you make changes.
+- Run clippy linter to check if there is no errors and warnings when you make changes. If there are errors or warnings, fix them.
 - Follow design docs in 'planning' folder.
 - Proceed with the smallest possible steps.
+
+## Development steps
+1. Review design and implementation plan docs in /planning folder. If there is no planning doc for the changes you are going to make, make a proposal to create it.
+2. Your code should be consistent with Janome Python code. Examine the corresponding Janome Python source and test code when you add new modules, structs, methods, test cases, and so on.
+3. When you add new methods,
+   1. Create empty methods with the correct method signatures without actual code.
+   2. Prepare test cases to test the methods you are going to make. Ask the user to review the test cases.
+   3. Implement the methods so that all test cases pass.
+4. When you make changes to existing methods,
+   1. Prepare test cases to test the changes you are going to make. Ask the user to review the test cases.
+   2. Implement the changes so that all test cases pass.
