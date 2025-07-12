@@ -53,9 +53,10 @@ The project aims to port janome library to Rust and provide the very same API to
 - Rust: Standard `cargo test` with unit tests in `src/lib.rs`
 
 ## Development policy
-- Run cargo build --all-targets to check if all the codebase is successfully compiled when you make changes.
-- Run cargo fmt when you make changes.
-- Run clippy linter to check if there is no errors and warnings when you make changes. If there are errors or warnings, fix them.
+When you make changes, follow the instructions below.
+- Run cargo build --all-targets to check if the entire codebase is successfully compiled.
+- Run cargo fmt to make sure all code is formatted.
+- Run clippy linter to check if there are no errors and warnings. If there are errors or warnings, try to fix them.
 - Follow design docs in 'planning' folder.
 - Proceed with the smallest possible steps.
 
