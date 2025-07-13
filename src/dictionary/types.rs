@@ -12,6 +12,7 @@ pub struct DictEntry {
     pub base_form: String,
     pub reading: String,
     pub phonetic: String,
+    pub morph_id: usize, // Dictionary entry index for tie-breaking in Viterbi
 }
 
 #[derive(Debug, Serialize, Deserialize)]

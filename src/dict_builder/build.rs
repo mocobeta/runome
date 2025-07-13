@@ -97,6 +97,7 @@ fn parse_csv_files(mecab_dir: &Path, encoding: &str) -> Result<Vec<DictEntry>> {
                 base_form: fields[10].to_string(),
                 reading: fields[11].to_string(),
                 phonetic: fields[12].to_string(),
+                morph_id: entries.len(), // Use current position as dictionary entry index
             };
 
             entries.push(entry);
