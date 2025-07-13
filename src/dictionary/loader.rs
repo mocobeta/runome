@@ -48,7 +48,7 @@ pub fn load_unknown_entries(sysdic_dir: &Path) -> Result<UnknownEntries, RunomeE
 }
 
 /// Load morpheme index from sysdic directory
-/// 
+///
 /// The morpheme index maps FST index IDs to vectors of morpheme IDs,
 /// allowing storage of multiple morpheme IDs per surface form.
 pub fn load_morpheme_index(sysdic_dir: &Path) -> Result<Vec<Vec<u32>>, RunomeError> {

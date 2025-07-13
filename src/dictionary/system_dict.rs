@@ -826,7 +826,7 @@ mod tests {
         }
     }
 
-    #[test] 
+    #[test]
     fn test_debug_fst_lookup() {
         // Simple debug test to check FST functionality with new encoding
         let sysdic_path = get_test_sysdic_path();
@@ -844,17 +844,19 @@ mod tests {
 
         // Test a simple lookup
         let test_words = ["形態素", "すもも", "東京"];
-        
+
         for word in test_words {
             eprintln!("=== Testing lookup for: {} ===", word);
-            
+
             let result = sys_dict.lookup(word);
             match result {
                 Ok(entries) => {
                     eprintln!("Success! Found {} entries", entries.len());
                     for (i, entry) in entries.iter().enumerate() {
-                        eprintln!("  [{}]: surface='{}', left_id={}, right_id={}, cost={}", 
-                            i, entry.surface, entry.left_id, entry.right_id, entry.cost);
+                        eprintln!(
+                            "  [{}]: surface='{}', left_id={}, right_id={}, cost={}",
+                            i, entry.surface, entry.left_id, entry.right_id, entry.cost
+                        );
                     }
                 }
                 Err(e) => {
@@ -894,10 +896,12 @@ mod tests {
         eprintln!("=== Dictionary lookup for '形態素' ===");
         eprintln!("Found {} entries:", entries.len());
         for (i, entry) in entries.iter().enumerate() {
-            eprintln!("  [{}]: surface='{}', left_id={}, right_id={}, cost={}, pos='{}'", 
-                i, entry.surface, entry.left_id, entry.right_id, entry.cost, entry.part_of_speech);
+            eprintln!(
+                "  [{}]: surface='{}', left_id={}, right_id={}, cost={}, pos='{}'",
+                i, entry.surface, entry.left_id, entry.right_id, entry.cost, entry.part_of_speech
+            );
         }
-        
+
         // Verify we get expected entries (Python gets 7, we should get them too with enhanced FST encoding)
         assert!(
             entries.len() == 7,

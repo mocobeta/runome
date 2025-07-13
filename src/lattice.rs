@@ -63,6 +63,10 @@ pub trait LatticeNode: std::fmt::Debug {
     /// Get the morphological ID for tie-breaking (corresponds to SurfaceNode.num in Python)
     /// Returns None for nodes without morphological data (BOS, EOS, etc.)
     fn morph_id(&self) -> Option<usize>;
+
+    fn part_of_speech(&self) -> &str;
+
+    fn base_form(&self) -> &str;
 }
 
 /// Node backed by a dictionary entry reference (zero-copy for dictionary words)
@@ -168,6 +172,14 @@ impl<'a> LatticeNode for Node<'a> {
     fn morph_id(&self) -> Option<usize> {
         Some(self.dict_entry.morph_id)
     }
+
+    fn part_of_speech(&self) -> &str {
+        &self.dict_entry.part_of_speech
+    }
+
+    fn base_form(&self) -> &str {
+        &self.dict_entry.base_form
+    }
 }
 
 /// Node for unknown words that owns its morphological data
@@ -212,16 +224,6 @@ impl UnknownNode {
             pos: 0,
             index: 0,
         }
-    }
-
-    /// Get the part of speech for this unknown word
-    pub fn part_of_speech(&self) -> &str {
-        &self.part_of_speech
-    }
-
-    /// Get the base form for this unknown word
-    pub fn base_form(&self) -> &str {
-        &self.base_form
     }
 }
 
@@ -292,6 +294,14 @@ impl LatticeNode for UnknownNode {
 
     fn morph_id(&self) -> Option<usize> {
         None // Unknown nodes don't have morphological IDs
+    }
+
+    fn part_of_speech(&self) -> &str {
+        &self.part_of_speech
+    }
+
+    fn base_form(&self) -> &str {
+        &self.base_form
     }
 }
 
@@ -393,6 +403,14 @@ impl LatticeNode for BOS {
     fn morph_id(&self) -> Option<usize> {
         None // BOS doesn't have a morphological ID
     }
+
+    fn part_of_speech(&self) -> &str {
+        "__BOS__" // BOS doesn't have a part of speech
+    }
+
+    fn base_form(&self) -> &str {
+        "__BOS__" // BOS doesn't have a base form
+    }
 }
 
 /// End-of-sentence node
@@ -487,6 +505,14 @@ impl LatticeNode for EOS {
     fn morph_id(&self) -> Option<usize> {
         None // EOS doesn't have a morphological ID
     }
+
+    fn part_of_speech(&self) -> &str {
+        "__EOS__" // EOS doesn't have a part of speech
+    }
+
+    fn base_form(&self) -> &str {
+        "__EOS__" // EOS doesn't have a base form
+    }
 }
 
 /// Lattice structure for Viterbi algorithm-based morphological analysis
@@ -516,7 +542,7 @@ impl<'a> Lattice<'a> {
     pub fn new(size: usize, dic: Arc<dyn Dictionary>) -> Self {
         // Initialize snodes and enodes vectors
         // We need positions 0 through size+1 (size+2 total positions)
-        let mut snodes = Vec::with_capacity(size + 2);
+        let mut snodes = Vec::with_capacity(size + 1);
         let mut enodes = Vec::with_capacity(size + 2);
 
         // Initialize all positions as empty first
@@ -631,24 +657,19 @@ impl<'a> Lattice<'a> {
                     min_cost = total_cost;
                     best_node = Some(enode.as_ref());
                 } else if total_cost == min_cost && best_node.is_some() {
-                    // Tie-breaking: match Python's SurfaceNode behavior
-                    // Python: enode.num < best_node.num (where num is morph_id)
+                    // Tie-breaking: match Python's exact logic
+                    // Python: cost == min_cost and isinstance(best_node, SurfaceNode) and isinstance(enode, SurfaceNode) and enode.num < best_node.num
                     let current_best = best_node.unwrap();
 
-                    // Only apply tie-breaking if both nodes have morph_id (like SurfaceNode)
-                    match (enode.morph_id(), current_best.morph_id()) {
-                        (Some(enode_id), Some(best_id)) => {
-                            if enode_id < best_id {
-                                best_node = Some(enode.as_ref());
-                            }
-                        }
-                        _ => {
-                            // Fall back to index-based tie-breaking for nodes without morph_id
-                            if enode.index() < current_best.index() {
-                                best_node = Some(enode.as_ref());
-                            }
+                    // Only apply tie-breaking if BOTH nodes have morph_id (equivalent to both being SurfaceNode in Python)
+                    if let (Some(enode_id), Some(best_id)) =
+                        (enode.morph_id(), current_best.morph_id())
+                    {
+                        if enode_id < best_id {
+                            best_node = Some(enode.as_ref());
                         }
                     }
+                    // No fallback tie-breaking - this matches Python exactly
                 }
             }
         }
@@ -671,7 +692,13 @@ impl<'a> Lattice<'a> {
         node.set_index(node_index);
 
         // Calculate where this node will end
-        let surface_len = node.surface_len();
+        // Python: node_len = len(node.surface) if hasattr(node, 'surface') else 1
+        // In Python, len() returns character count, not byte count
+        let surface_len = if node.surface().is_empty() {
+            1
+        } else {
+            node.surface().chars().count()
+        };
         let end_pos = self.p + surface_len;
 
         // Expand lattice if necessary
@@ -682,64 +709,43 @@ impl<'a> Lattice<'a> {
             self.enodes.push(Vec::new());
         }
 
-        // Store the node information we need for end nodes before moving
-        let node_pos = node.pos();
-        let node_index = node.index();
-        let node_left_id = node.left_id();
-        let node_right_id = node.right_id();
-        let node_cost = node.cost();
-        let node_min_cost = node.min_cost();
-        let node_back_pos = node.back_pos();
-        let node_back_index = node.back_index();
-
         // Add to start nodes
         self.snodes[self.p].push(node);
 
-        // Create a copy for end nodes (we need to clone the node data)
-        // We'll create the appropriate node type based on the original
-        let end_node: Box<dyn LatticeNode + 'a> = if let Some(last_node) =
-            self.snodes[self.p].last()
-        {
-            // Determine node type and create appropriate clone
-            match last_node.node_type() {
-                NodeType::SysDict | NodeType::UserDict => {
-                    // For dictionary nodes, we need the DictEntry reference
-                    // This is tricky because we can't easily clone trait objects
-                    // For now, we'll create a simple reference wrapper
-                    // TODO: This needs a better design
-                    let mut bos_clone = Box::new(BOS::new()) as Box<dyn LatticeNode + 'a>;
-                    bos_clone.set_pos(node_pos);
-                    bos_clone.set_index(node_index);
-                    bos_clone.set_min_cost(node_min_cost);
-                    bos_clone.set_back_pos(node_back_pos);
-                    bos_clone.set_back_index(node_back_index);
-                    bos_clone
-                }
-                NodeType::Unknown => {
-                    let mut unknown_clone = Box::new(UnknownNode::new(
-                        last_node.surface().to_string(),
-                        node_left_id,
-                        node_right_id,
-                        node_cost,
-                        "Unknown".to_string(),
-                        last_node.surface().to_string(),
-                    )) as Box<dyn LatticeNode + 'a>;
-                    unknown_clone.set_pos(node_pos);
-                    unknown_clone.set_index(node_index);
-                    unknown_clone.set_min_cost(node_min_cost);
-                    unknown_clone.set_back_pos(node_back_pos);
-                    unknown_clone.set_back_index(node_back_index);
-                    unknown_clone
-                }
-            }
+        // Python: self.enodes[self.p + node_len].append(node)
+        // In Python, the SAME node object is added to both snodes and enodes
+        // We need to create a reference to the node we just added
+        if let Some(added_node) = self.snodes[self.p].last() {
+            // We can't directly clone the Box<dyn LatticeNode>, but we need to create
+            // a compatible reference. For now, we'll create a minimal node that has
+            // the same essential properties for lattice traversal.
+            // This is a temporary solution - ideally we'd restructure to use Rc<RefCell<Node>>
+
+            // Create a simple reference node that preserves the essential data
+            let surface = added_node.surface().to_string();
+            let end_node = Box::new(UnknownNode::new(
+                surface,
+                added_node.left_id(),
+                added_node.right_id(),
+                added_node.cost(),
+                added_node.part_of_speech().to_string(),
+                added_node.base_form().to_string(),
+            )) as Box<dyn LatticeNode + 'a>;
+
+            // Set the same Viterbi data
+            let mut end_node = end_node;
+            end_node.set_pos(added_node.pos());
+            end_node.set_index(added_node.index());
+            end_node.set_min_cost(added_node.min_cost());
+            end_node.set_back_pos(added_node.back_pos());
+            end_node.set_back_index(added_node.back_index());
+
+            self.enodes[end_pos].push(end_node);
         } else {
             return Err(RunomeError::DictValidationError {
                 reason: "Failed to add node to snodes".to_string(),
             });
-        };
-
-        // Add to end nodes at the calculated end position
-        self.enodes[end_pos].push(end_node);
+        }
 
         Ok(())
     }
@@ -777,58 +783,13 @@ impl<'a> Lattice<'a> {
     /// * `Ok(())` if EOS was successfully added
     /// * `Err(RunomeError)` if cost calculation fails
     pub fn end(&mut self) -> Result<(), RunomeError> {
-        // Create EOS node at current position
-        let mut eos = Box::new(EOS::new(self.p)) as Box<dyn LatticeNode + 'a>;
+        // Python: eos = EOS(self.p)
+        let eos = Box::new(EOS::new(self.p)) as Box<dyn LatticeNode + 'a>;
 
-        // Find optimal predecessor using Viterbi algorithm
-        let mut min_cost = i32::MAX;
-        let mut best_node: Option<&dyn LatticeNode> = None;
+        // Python: self.add(eos) - use the same add() method as all other nodes
+        self.add(eos)?;
 
-        // Check all end nodes at current position for best predecessor
-        if let Some(end_nodes) = self.enodes.get(self.p) {
-            for enode in end_nodes {
-                // Calculate connection cost to EOS (left_id = 0)
-                let connection_cost = self.dic.get_trans_cost(enode.right_id(), 0)?;
-                let total_cost = enode.min_cost() + connection_cost as i32;
-
-                // Update if this is the best path
-                if total_cost < min_cost {
-                    min_cost = total_cost;
-                    best_node = Some(enode.as_ref());
-                } else if total_cost == min_cost && best_node.is_some() {
-                    // Tie-breaking: prefer lower-indexed nodes
-                    let current_best = best_node.unwrap();
-                    if enode.index() < current_best.index() {
-                        best_node = Some(enode.as_ref());
-                    }
-                }
-            }
-        }
-
-        // Set EOS Viterbi fields
-        eos.set_min_cost(min_cost);
-        if let Some(best) = best_node {
-            eos.set_back_pos(best.pos() as i32);
-            eos.set_back_index(best.index() as i32);
-        } else {
-            // No predecessor found - this shouldn't happen in a valid lattice
-            eos.set_back_pos(-1);
-            eos.set_back_index(-1);
-        }
-
-        // Set EOS position and index
-        eos.set_pos(self.p);
-        eos.set_index(0); // EOS is always the first (and only) node at its position
-
-        // Add EOS to the lattice
-        // Ensure we have space for the current position
-        while self.snodes.len() <= self.p {
-            self.snodes.push(Vec::new());
-        }
-
-        self.snodes[self.p].push(eos);
-
-        // Truncate snodes to remove any extra positions beyond EOS
+        // Python: self.snodes = self.snodes[:self.p + 1]
         self.snodes.truncate(self.p + 1);
 
         Ok(())
@@ -2134,8 +2095,6 @@ mod tests {
             assert!(entries_result.is_ok(), "Dictionary lookup should succeed");
             let entries = entries_result.unwrap();
 
-            eprintln!("Position {}: '{}' - found {} entries", pos, remaining, entries.len());
-
             // Add all entries to lattice
             for entry in &entries {
                 let node = Box::new(Node::new(entry, NodeType::SysDict)) as Box<dyn LatticeNode>;
@@ -2155,21 +2114,157 @@ mod tests {
         assert!(path_result.is_ok(), "Backward should succeed");
         let min_cost_path = path_result.unwrap();
 
-        eprintln!("Path length: {}", min_cost_path.len());
-        for (i, node) in min_cost_path.iter().enumerate() {
-            eprintln!("  [{}]: '{}'", i, node.surface());
-        }
-
         // Verify basic structure
-        assert!(min_cost_path.len() >= 3, "Should have at least BOS, word, EOS");
+        assert!(
+            min_cost_path.len() >= 3,
+            "Should have at least BOS, word, EOS"
+        );
         assert_eq!(min_cost_path[0].surface(), "__BOS__", "First should be BOS");
-        assert_eq!(min_cost_path[min_cost_path.len()-1].surface(), "__EOS__", "Last should be EOS");
+        assert_eq!(
+            min_cost_path[min_cost_path.len() - 1].surface(),
+            "__EOS__",
+            "Last should be EOS"
+        );
 
         // Reconstruct the text
-        let reconstructed: String = min_cost_path[1..min_cost_path.len()-1]
+        let reconstructed: String = min_cost_path[1..min_cost_path.len() - 1]
             .iter()
             .map(|node| node.surface())
             .collect();
         assert_eq!(reconstructed, s, "Should reconstruct original text");
+    }
+
+    #[test]
+    fn test_backward() {
+        // Equivalent to Python TestLattice.test_backward()
+        // Tests the complete lattice building and backward path finding process
+        // with the same test string "すもももももももものうち" used in the Python version.
+        // Skip test if sysdic directory doesn't exist (e.g., in CI)
+        let sysdic_path = std::path::PathBuf::from("sysdic");
+        if !sysdic_path.exists() {
+            eprintln!(
+                "Skipping test: sysdic directory not found at {:?}",
+                sysdic_path
+            );
+            return;
+        }
+
+        // Get SystemDictionary instance
+        let sys_dict_result = crate::dictionary::SystemDictionary::instance();
+        if sys_dict_result.is_err() {
+            eprintln!(
+                "Skipping test: Failed to create SystemDictionary: {:?}",
+                sys_dict_result.err()
+            );
+            return;
+        }
+        let sys_dict = sys_dict_result.unwrap();
+
+        let s = "すもももももももものうち";
+
+        // Python test: lattice = Lattice(len(s), SYS_DIC)
+        let mut lattice = Lattice::new(s.chars().count(), sys_dict.clone());
+
+        // Python test: pos = 0; while pos < len(s): ...
+        let mut pos = 0;
+        let chars: Vec<char> = s.chars().collect();
+
+        while pos < chars.len() {
+            // Python test: entries = SYS_DIC.lookup(s[pos:].encode('utf8'), MATCHER)
+            let remaining: String = chars[pos..].iter().collect();
+            let entries_result = sys_dict.lookup(&remaining);
+            assert!(entries_result.is_ok(), "Dictionary lookup should succeed");
+            let entries = entries_result.unwrap();
+
+            // Python test: for e in entries: lattice.add(SurfaceNode(e))
+            for entry in &entries {
+                let node = Box::new(Node::new(entry, NodeType::SysDict)) as Box<dyn LatticeNode>;
+                let add_result = lattice.add(node);
+                assert!(add_result.is_ok(), "Adding node should succeed");
+            }
+
+            // Python test: pos += lattice.forward()
+            pos += lattice.forward();
+        }
+
+        // Python test: lattice.end()
+        assert!(lattice.end().is_ok(), "Lattice end should succeed");
+
+        // Python test: min_cost_path = lattice.backward()
+        let path_result = lattice.backward();
+        assert!(path_result.is_ok(), "Backward should succeed");
+        let min_cost_path = path_result.unwrap();
+
+        // Python test: self.assertEqual(9, len(min_cost_path))
+        assert_eq!(
+            min_cost_path.len(),
+            9,
+            "Should have 9 nodes in the minimum cost path"
+        );
+
+        // Verify basic structure regardless of exact segmentation
+        assert!(
+            min_cost_path.len() >= 3,
+            "Should have at least BOS, content, EOS"
+        );
+
+        // Python test: self.assertTrue(isinstance(min_cost_path[0], BOS))
+        assert_eq!(
+            min_cost_path[0].surface(),
+            "__BOS__",
+            "First node should be BOS"
+        );
+
+        // Python test: self.assertTrue(isinstance(min_cost_path[8], EOS))
+        assert_eq!(
+            min_cost_path[min_cost_path.len() - 1].surface(),
+            "__EOS__",
+            "Last node should be EOS"
+        );
+
+        // Verify text reconstruction works
+        let reconstructed: String = min_cost_path[1..min_cost_path.len() - 1]
+            .iter()
+            .map(|node| node.surface())
+            .collect();
+        assert_eq!(reconstructed, s, "Should reconstruct original text");
+
+        // Verify the expected segmentation matches Python
+        // Python test expectations:
+        assert_eq!(
+            min_cost_path[1].surface(),
+            "すもも",
+            "Second node should be 'すもも'"
+        );
+        assert_eq!(
+            min_cost_path[2].surface(),
+            "も",
+            "Third node should be 'も'"
+        );
+        assert_eq!(
+            min_cost_path[3].surface(),
+            "もも",
+            "Fourth node should be 'もも'"
+        );
+        assert_eq!(
+            min_cost_path[4].surface(),
+            "も",
+            "Fifth node should be 'も'"
+        );
+        assert_eq!(
+            min_cost_path[5].surface(),
+            "もも",
+            "Sixth node should be 'もも'"
+        );
+        assert_eq!(
+            min_cost_path[6].surface(),
+            "の",
+            "Seventh node should be 'の'"
+        );
+        assert_eq!(
+            min_cost_path[7].surface(),
+            "うち",
+            "Eighth node should be 'うち'"
+        );
     }
 }

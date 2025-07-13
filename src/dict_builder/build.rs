@@ -121,7 +121,7 @@ fn build_fst(entries: &[DictEntry]) -> Result<(Vec<u8>, Vec<Vec<u32>>)> {
 
     // Create separate morpheme index for storing multiple morpheme IDs
     let mut morpheme_index: Vec<Vec<u32>> = Vec::new();
-    
+
     // Create surface form to index ID mappings (instead of encoded morpheme IDs)
     let mut surface_to_index: Vec<(String, u64)> = surface_groups
         .iter()
@@ -129,13 +129,19 @@ fn build_fst(entries: &[DictEntry]) -> Result<(Vec<u8>, Vec<Vec<u32>>)> {
             // Store morpheme IDs in separate index, FST stores only the index ID
             let index_id = morpheme_index.len() as u64;
             morpheme_index.push(ids.clone());
-            
+
             info!(
                 "Surface '{}' → index {} with {} morpheme IDs: {:?}",
-                surface, index_id, ids.len(), 
-                if ids.len() <= 10 { ids.clone() } else { ids[..5].to_vec() }
+                surface,
+                index_id,
+                ids.len(),
+                if ids.len() <= 10 {
+                    ids.clone()
+                } else {
+                    ids[..5].to_vec()
+                }
             );
-            
+
             (surface.clone(), index_id)
         })
         .collect();
@@ -351,7 +357,8 @@ fn save_dictionary(
 
     // Save morpheme index (maps FST index IDs to vectors of morpheme IDs)
     let morpheme_index_path = output_dir.join("morpheme_index.bin");
-    let encoded = bincode::serialize(morpheme_index).context("Failed to serialize morpheme index")?;
+    let encoded =
+        bincode::serialize(morpheme_index).context("Failed to serialize morpheme index")?;
     fs::write(&morpheme_index_path, encoded).context("Failed to write morpheme index file")?;
 
     // Save dictionary entries

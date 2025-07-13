@@ -214,7 +214,7 @@ impl Dictionary for RAMDictionary {
         // 4. For each index ID, look up the morpheme IDs and resolve to entries
         for index_id in index_ids {
             let morpheme_ids = self.matcher.lookup_morpheme_ids(index_id, morpheme_index);
-            
+
             for morpheme_id in morpheme_ids {
                 // Validate morpheme ID is within bounds
                 if let Some(entry) = entries.get(morpheme_id as usize) {
