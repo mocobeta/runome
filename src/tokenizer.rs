@@ -32,8 +32,8 @@ impl Token {
             infl_type: "*".to_string(), // TODO: Get from dictionary entry
             infl_form: "*".to_string(), // TODO: Get from dictionary entry
             base_form: node.base_form().to_string(),
-            reading: "*".to_string(),  // TODO: Get from dictionary entry
-            phonetic: "*".to_string(), // TODO: Get from dictionary entry
+            reading: node.reading().to_string(),
+            phonetic: node.phonetic().to_string(),
             node_type: node.node_type(),
         }
     }
@@ -52,8 +52,8 @@ impl Token {
             infl_type: "*".to_string(),
             infl_form: "*".to_string(),
             base_form,
-            reading: "*".to_string(),
-            phonetic: "*".to_string(),
+            reading: node.reading().to_string(),
+            phonetic: node.phonetic().to_string(),
             node_type: node.node_type(),
         }
     }
@@ -293,13 +293,13 @@ impl Tokenizer {
         text: &str,
         baseform_unk: bool,
     ) -> Result<(), RunomeError> {
-        let text_bytes = text.as_bytes();
+        let _text_bytes = text.as_bytes();
         let text_len = text.len();
         let mut pos = 0;
 
         // Python-style incremental processing: while pos < len(s):
         while pos < text_len {
-            let current_pos = lattice.position();
+            let _current_pos = lattice.position();
 
             // Extract current character for unknown word processing
             let current_char = text[pos..].chars().next().unwrap();
@@ -333,6 +333,9 @@ impl Tokenizer {
                                 entry.cost,
                                 entry.part_of_speech.clone(),
                                 entry.base_form.clone(),
+                                entry.reading.clone(),
+                                entry.phonetic.clone(),
+                                NodeType::SysDict,
                             ));
                             lattice.add(dict_node)?;
                         }
@@ -380,6 +383,9 @@ impl Tokenizer {
                             entry.cost,
                             entry.part_of_speech.clone(),
                             base_form,
+                            "*".to_string(),
+                            "*".to_string(),
+                            NodeType::Unknown,
                         ));
 
                         lattice.add(unknown_node)?;
@@ -397,12 +403,10 @@ impl Tokenizer {
             if advancement > 0 {
                 // Find the byte position corresponding to the lattice advancement
                 let mut char_count = 0;
-                let mut byte_pos = pos;
-                for (i, _) in text[pos..].char_indices() {
+                for (_i, _) in text[pos..].char_indices() {
                     if char_count >= advancement {
                         break;
                     }
-                    byte_pos = pos + i;
                     char_count += 1;
                 }
                 // Move to position after the last character
@@ -410,12 +414,11 @@ impl Tokenizer {
                     pos = text_len; // End of string
                 } else {
                     // Find start of next character
-                    byte_pos = text[pos..]
+                    pos = text[pos..]
                         .char_indices()
                         .nth(advancement)
                         .map(|(i, _)| pos + i)
                         .unwrap_or(text_len);
-                    pos = byte_pos;
                 }
             } else {
                 // If no advancement, move by one character to avoid infinite loop
@@ -446,7 +449,7 @@ impl Tokenizer {
         };
 
         let mut buf = String::new();
-        let mut char_indices: Vec<_> = text[start_pos..].char_indices().collect();
+        let char_indices: Vec<_> = text[start_pos..].char_indices().collect();
 
         // Add the starting character
         if let Some((_, first_char)) = char_indices.first() {
@@ -481,43 +484,6 @@ impl Tokenizer {
         Ok(buf)
     }
 
-    /// Legacy method for compatibility - will be removed
-    fn build_grouped_surface(
-        &self,
-        chars: &[char],
-        start_pos: usize,
-        category: &str,
-    ) -> Result<String, RunomeError> {
-        let mut surface = String::new();
-        let category_max_length = self.sys_dic.unknown_length_result(category)?;
-        // Apply both category-specific limit and tokenizer's global limit
-        let max_length = std::cmp::min(category_max_length, self.max_unknown_length);
-        let mut pos = start_pos;
-
-        // Add the starting character
-        surface.push(chars[pos]);
-        pos += 1;
-
-        // Group consecutive characters of compatible categories
-        while pos < chars.len() && surface.chars().count() < max_length {
-            let c = chars[pos];
-            let c_categories = self.sys_dic.get_char_categories_result(c)?;
-
-            // Check if this character belongs to the same category or compatible category
-            let same_category = c_categories.contains(&category.to_string());
-            let compatible = self.is_compatible_category(category, &c_categories);
-
-            if same_category || compatible {
-                surface.push(c);
-                pos += 1;
-            } else {
-                break;
-            }
-        }
-
-        Ok(surface)
-    }
-
     /// Python-style category compatibility checking
     /// Implements: any(cate in _compat_cates for _compat_cates in _cates.values())
     fn is_compatible_category_python_style(
@@ -527,33 +493,6 @@ impl Tokenizer {
     ) -> bool {
         // For now, use simplified compatibility rules
         // TODO: Implement full compatible categories lookup from char definitions
-        match base_category {
-            "NUMERIC" => char_categories
-                .iter()
-                .any(|cat| cat == "NUMERIC" || cat == "DEFAULT"),
-            "ALPHA" => char_categories
-                .iter()
-                .any(|cat| cat == "ALPHA" || cat == "DEFAULT"),
-            "KATAKANA" => char_categories
-                .iter()
-                .any(|cat| cat == "KATAKANA" || cat == "DEFAULT"),
-            "HIRAGANA" => char_categories
-                .iter()
-                .any(|cat| cat == "HIRAGANA" || cat == "DEFAULT"),
-            "KANJI" => char_categories
-                .iter()
-                .any(|cat| cat == "KANJI" || cat == "DEFAULT"),
-            "SYMBOL" => char_categories
-                .iter()
-                .any(|cat| cat == "SYMBOL" || cat == "DEFAULT"),
-            _ => false,
-        }
-    }
-
-    /// Legacy compatibility method
-    fn is_compatible_category(&self, base_category: &str, char_categories: &[String]) -> bool {
-        // Implement compatibility rules based on Python Janome logic
-        // For now, implement basic compatibility for common cases
         match base_category {
             "NUMERIC" => char_categories
                 .iter()
@@ -648,6 +587,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         );
 
         let token = Token::from_unknown_node(&unknown_node, true);
@@ -669,6 +611,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         );
 
         let token = Token::from_unknown_node(&unknown_node, true);
@@ -691,6 +636,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         );
         let token = Token::from_unknown_node(&unknown_node, true);
         let token_result = TokenizeResult::Token(token);
@@ -715,7 +663,7 @@ mod tests {
 
         let tokenizer = tokenizer.unwrap();
         assert_eq!(tokenizer.max_unknown_length, 1024);
-        assert_eq!(tokenizer.wakati, false);
+        assert!(!tokenizer.wakati);
     }
 
     #[test]
@@ -735,7 +683,7 @@ mod tests {
 
         let tokenizer = tokenizer.unwrap();
         assert_eq!(tokenizer.max_unknown_length, 2048);
-        assert_eq!(tokenizer.wakati, true);
+        assert!(tokenizer.wakati);
     }
 
     #[test]

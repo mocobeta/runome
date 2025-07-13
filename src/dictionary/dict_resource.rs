@@ -378,7 +378,7 @@ mod tests {
 
         let cost = cost_result.unwrap();
         assert!(
-            cost >= -10000 && cost <= 10000,
+            (-10000..=10000).contains(&cost),
             "Connection cost should be reasonable: {}",
             cost
         );
@@ -507,29 +507,29 @@ mod tests {
         let dict = DictionaryResource::load(&sysdic_path).expect("Failed to load dictionary");
 
         // Test known category properties based on char.def
-        assert_eq!(dict.unknown_invoked_always("HIRAGANA"), false);
-        assert_eq!(dict.unknown_grouping("HIRAGANA"), true);
+        assert!(!dict.unknown_invoked_always("HIRAGANA"));
+        assert!(dict.unknown_grouping("HIRAGANA"));
         assert_eq!(dict.unknown_length("HIRAGANA"), 2);
 
-        assert_eq!(dict.unknown_invoked_always("KATAKANA"), true);
-        assert_eq!(dict.unknown_grouping("KATAKANA"), true);
+        assert!(dict.unknown_invoked_always("KATAKANA"));
+        assert!(dict.unknown_grouping("KATAKANA"));
         assert_eq!(dict.unknown_length("KATAKANA"), 2);
 
-        assert_eq!(dict.unknown_invoked_always("KANJI"), false);
-        assert_eq!(dict.unknown_grouping("KANJI"), false);
+        assert!(!dict.unknown_invoked_always("KANJI"));
+        assert!(!dict.unknown_grouping("KANJI"));
         assert_eq!(dict.unknown_length("KANJI"), 2);
 
-        assert_eq!(dict.unknown_invoked_always("ALPHA"), true);
-        assert_eq!(dict.unknown_grouping("ALPHA"), true);
+        assert!(dict.unknown_invoked_always("ALPHA"));
+        assert!(dict.unknown_grouping("ALPHA"));
         assert_eq!(dict.unknown_length("ALPHA"), 0);
 
-        assert_eq!(dict.unknown_invoked_always("NUMERIC"), true);
-        assert_eq!(dict.unknown_grouping("NUMERIC"), true);
+        assert!(dict.unknown_invoked_always("NUMERIC"));
+        assert!(dict.unknown_grouping("NUMERIC"));
         assert_eq!(dict.unknown_length("NUMERIC"), 0);
 
         // Test non-existent category
-        assert_eq!(dict.unknown_invoked_always("NONEXISTENT"), false);
-        assert_eq!(dict.unknown_grouping("NONEXISTENT"), false);
+        assert!(!dict.unknown_invoked_always("NONEXISTENT"));
+        assert!(!dict.unknown_grouping("NONEXISTENT"));
         assert_eq!(dict.unknown_length("NONEXISTENT"), -1);
     }
 

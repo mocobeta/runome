@@ -67,6 +67,10 @@ pub trait LatticeNode: std::fmt::Debug {
     fn part_of_speech(&self) -> &str;
 
     fn base_form(&self) -> &str;
+
+    fn reading(&self) -> &str;
+
+    fn phonetic(&self) -> &str;
 }
 
 /// Node backed by a dictionary entry reference (zero-copy for dictionary words)
@@ -180,6 +184,14 @@ impl<'a> LatticeNode for Node<'a> {
     fn base_form(&self) -> &str {
         &self.dict_entry.base_form
     }
+
+    fn reading(&self) -> &str {
+        &self.dict_entry.reading
+    }
+
+    fn phonetic(&self) -> &str {
+        &self.dict_entry.phonetic
+    }
 }
 
 /// Node for unknown words that owns its morphological data
@@ -192,6 +204,9 @@ pub struct UnknownNode {
     cost: i16,
     part_of_speech: String,
     base_form: String,
+    reading: String,
+    phonetic: String,
+    node_type: NodeType,
 
     /// Viterbi algorithm fields
     min_cost: i32,
@@ -203,6 +218,7 @@ pub struct UnknownNode {
 
 impl UnknownNode {
     /// Create a new UnknownNode with owned morphological data
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         surface: String,
         left_id: u16,
@@ -210,6 +226,9 @@ impl UnknownNode {
         cost: i16,
         part_of_speech: String,
         base_form: String,
+        reading: String,
+        phonetic: String,
+        node_type: NodeType,
     ) -> Self {
         Self {
             surface,
@@ -218,6 +237,9 @@ impl UnknownNode {
             cost,
             part_of_speech,
             base_form,
+            reading,
+            phonetic,
+            node_type,
             min_cost: i32::MAX,
             back_pos: -1,
             back_index: -1,
@@ -285,7 +307,7 @@ impl LatticeNode for UnknownNode {
     }
 
     fn node_type(&self) -> NodeType {
-        NodeType::Unknown
+        self.node_type.clone()
     }
 
     fn surface_len(&self) -> usize {
@@ -302,6 +324,14 @@ impl LatticeNode for UnknownNode {
 
     fn base_form(&self) -> &str {
         &self.base_form
+    }
+
+    fn reading(&self) -> &str {
+        &self.reading
+    }
+
+    fn phonetic(&self) -> &str {
+        &self.phonetic
     }
 }
 
@@ -411,6 +441,14 @@ impl LatticeNode for BOS {
     fn base_form(&self) -> &str {
         "__BOS__" // BOS doesn't have a base form
     }
+
+    fn reading(&self) -> &str {
+        ""
+    }
+
+    fn phonetic(&self) -> &str {
+        ""
+    }
 }
 
 /// End-of-sentence node
@@ -512,6 +550,14 @@ impl LatticeNode for EOS {
 
     fn base_form(&self) -> &str {
         "__EOS__" // EOS doesn't have a base form
+    }
+
+    fn reading(&self) -> &str {
+        ""
+    }
+
+    fn phonetic(&self) -> &str {
+        ""
     }
 }
 
@@ -730,6 +776,9 @@ impl<'a> Lattice<'a> {
                 added_node.cost(),
                 added_node.part_of_speech().to_string(),
                 added_node.base_form().to_string(),
+                added_node.reading().to_string(),
+                added_node.phonetic().to_string(),
+                added_node.node_type(),
             )) as Box<dyn LatticeNode + 'a>;
 
             // Set the same Viterbi data
@@ -967,6 +1016,9 @@ mod tests {
             500,
             "名詞,一般,*,*,*,*".to_string(),
             "未知語".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         );
 
         assert_eq!(unknown.surface(), "未知語");
@@ -1202,6 +1254,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         // Add the node to the lattice
@@ -1243,6 +1298,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト1".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         let node2 = Box::new(UnknownNode::new(
@@ -1252,6 +1310,9 @@ mod tests {
             200,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト2".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         // Add both nodes
@@ -1292,6 +1353,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         // Add the node
@@ -1323,6 +1387,9 @@ mod tests {
             500,
             "名詞,一般,*,*,*,*".to_string(),
             "未知語".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         // Add the unknown node
@@ -1362,6 +1429,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "とても長い表面形".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         // Add the node (should trigger lattice expansion)
@@ -1392,7 +1462,7 @@ mod tests {
         // Note: The end node might be empty if the node cloning logic didn't work properly
         // For now, just verify the lattice expanded correctly
         assert!(
-            lattice.snodes.len() >= end_pos + 1,
+            lattice.snodes.len() > end_pos,
             "Lattice should have expanded to accommodate end position"
         );
     }
@@ -1410,6 +1480,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
         assert!(lattice.add(node1).is_ok());
 
@@ -1424,6 +1497,9 @@ mod tests {
             100,
             "名詞,一般,*,*,*,*".to_string(),
             "語".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
         assert!(lattice.add(node2).is_ok());
 
@@ -1580,6 +1656,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
         assert!(lattice.add(node).is_ok());
 
@@ -1628,6 +1707,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
         assert!(lattice.add(node).is_ok());
 
@@ -1668,6 +1750,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "短".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
         assert!(lattice.add(node).is_ok());
 
@@ -1709,6 +1794,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
         assert!(lattice.add(node).is_ok());
 
@@ -1952,6 +2040,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         assert!(lattice.add(node1).is_ok());
@@ -2001,6 +2092,9 @@ mod tests {
             150,
             "名詞,一般,*,*,*,*".to_string(),
             "テスト".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         assert!(lattice.add(node).is_ok());
@@ -2023,6 +2117,9 @@ mod tests {
             150,
             "名詞,固有名詞,地域,国,*,*".to_string(),
             "日本".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         assert!(lattice.add(node1).is_ok());
@@ -2035,6 +2132,9 @@ mod tests {
             100,
             "名詞,一般,*,*,*,*".to_string(),
             "語".to_string(),
+            "*".to_string(),
+            "*".to_string(),
+            NodeType::Unknown,
         )) as Box<dyn LatticeNode>;
 
         assert!(lattice.add(node2).is_ok());

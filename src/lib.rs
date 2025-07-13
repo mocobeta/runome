@@ -4,6 +4,9 @@ pub mod error;
 pub mod lattice;
 pub mod tokenizer;
 
+#[cfg(test)]
+pub mod tokenizer_tests;
+
 pub use dict_builder::DictionaryBuilder;
 pub use dictionary::{Dictionary, DictionaryResource, Matcher, RAMDictionary};
 pub use error::{Result, RunomeError};

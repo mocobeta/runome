@@ -678,7 +678,7 @@ mod tests {
 
             // Verify return values are reasonable
             assert!(
-                length >= -1 && length <= 255,
+                (-1..=255).contains(&length),
                 "Length for category '{}' should be between -1 and 255, got: {}",
                 category,
                 length

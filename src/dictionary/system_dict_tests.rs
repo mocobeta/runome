@@ -97,9 +97,7 @@ mod category_compatibility_tests {
         for ch in test_chars {
             let categories = sys_dict.get_char_categories(ch);
             for (category_name, compat_categories) in categories {
-                let entry = category_relationships
-                    .entry(category_name)
-                    .or_insert_with(Vec::new);
+                let entry = category_relationships.entry(category_name).or_default();
                 for compat in compat_categories {
                     if !entry.contains(&compat) {
                         entry.push(compat);
@@ -157,7 +155,7 @@ mod category_compatibility_tests {
 
             // Verify properties are consistent and reasonable
             assert!(
-                length >= -1 && length <= 255,
+                (-1..=255).contains(&length),
                 "Category '{}' has invalid length: {}",
                 category,
                 length
