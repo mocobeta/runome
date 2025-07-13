@@ -4,7 +4,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use encoding_rs::Encoding;
-use fst::MapBuilder;
 use log::info;
 
 use super::DictionaryBuilder;
@@ -24,9 +23,9 @@ pub fn build_dictionary(builder: &DictionaryBuilder) -> Result<()> {
     let entries = parse_csv_files(&builder.mecab_dir, &builder.encoding)?;
     info!("Parsed {} dictionary entries", entries.len());
 
-    // 2. Build FST mapping surface forms to morpheme IDs
-    info!("Building FST");
-    let fst_data = build_fst(&entries)?;
+    // 2. Build FST mapping surface forms to index IDs and separate morpheme index
+    info!("Building FST and morpheme index");
+    let (fst_data, morpheme_index) = build_fst(&entries)?;
 
     // 3. Parse connection matrix
     info!("Parsing connection matrix");
@@ -45,6 +44,7 @@ pub fn build_dictionary(builder: &DictionaryBuilder) -> Result<()> {
     save_dictionary(
         &builder.output_dir,
         &fst_data,
+        &morpheme_index,
         &entries,
         &connection_matrix,
         &char_defs,
@@ -107,7 +107,7 @@ fn parse_csv_files(mecab_dir: &Path, encoding: &str) -> Result<Vec<DictEntry>> {
     Ok(entries)
 }
 
-fn build_fst(entries: &[DictEntry]) -> Result<Vec<u8>> {
+fn build_fst(entries: &[DictEntry]) -> Result<(Vec<u8>, Vec<Vec<u32>>)> {
     use std::collections::HashMap;
 
     // Group entries by surface form to handle duplicates
@@ -119,29 +119,47 @@ fn build_fst(entries: &[DictEntry]) -> Result<Vec<u8>> {
             .push(id as u32);
     }
 
-    // Create surface form to first morpheme ID mappings (for FST)
-    let mut surface_to_id: Vec<(String, u32)> = surface_groups
+    // Create separate morpheme index for storing multiple morpheme IDs
+    let mut morpheme_index: Vec<Vec<u32>> = Vec::new();
+    
+    // Create surface form to index ID mappings (instead of encoded morpheme IDs)
+    let mut surface_to_index: Vec<(String, u64)> = surface_groups
         .iter()
-        .map(|(surface, ids)| (surface.clone(), ids[0])) // Use first ID for duplicates
+        .map(|(surface, ids)| {
+            // Store morpheme IDs in separate index, FST stores only the index ID
+            let index_id = morpheme_index.len() as u64;
+            morpheme_index.push(ids.clone());
+            
+            info!(
+                "Surface '{}' → index {} with {} morpheme IDs: {:?}",
+                surface, index_id, ids.len(), 
+                if ids.len() <= 10 { ids.clone() } else { ids[..5].to_vec() }
+            );
+            
+            (surface.clone(), index_id)
+        })
         .collect();
 
     // Sort by surface form (required for FST building)
-    surface_to_id.sort_by(|a, b| a.0.cmp(&b.0));
+    surface_to_index.sort_by(|a, b| a.0.cmp(&b.0));
 
     info!(
-        "Building FST with {} unique surface forms",
-        surface_to_id.len()
+        "Building FST with {} unique surface forms, total entries: {}, morpheme index size: {}",
+        surface_to_index.len(),
+        entries.len(),
+        morpheme_index.len()
     );
 
     // Build FST
-    let mut builder = MapBuilder::memory();
-    for (surface, morpheme_id) in surface_to_id {
+    let mut builder = fst::MapBuilder::memory();
+    for (surface, index_id) in surface_to_index {
         builder
-            .insert(surface.as_bytes(), morpheme_id as u64)
+            .insert(surface.as_bytes(), index_id)
             .context("Failed to insert into FST")?;
     }
 
-    builder.into_inner().context("Failed to build FST")
+    let fst_bytes = builder.into_inner().context("Failed to build FST")?;
+    Ok((fst_bytes, morpheme_index))
 }
 
 fn parse_matrix_def(mecab_dir: &Path, encoding: &str) -> Result<ConnectionMatrix> {
@@ -321,6 +339,7 @@ fn parse_unk_def(mecab_dir: &Path, encoding: &str) -> Result<UnknownEntries> {
 fn save_dictionary(
     output_dir: &Path,
     fst_data: &[u8],
+    morpheme_index: &[Vec<u32>],
     entries: &[DictEntry],
     connection_matrix: &ConnectionMatrix,
     char_defs: &CharDefinitions,
@@ -329,6 +348,11 @@ fn save_dictionary(
     // Save FST
     let fst_path = output_dir.join("dic.fst");
     fs::write(&fst_path, fst_data).context("Failed to write FST file")?;
+
+    // Save morpheme index (maps FST index IDs to vectors of morpheme IDs)
+    let morpheme_index_path = output_dir.join("morpheme_index.bin");
+    let encoded = bincode::serialize(morpheme_index).context("Failed to serialize morpheme index")?;
+    fs::write(&morpheme_index_path, encoded).context("Failed to write morpheme index file")?;
 
     // Save dictionary entries
     let entries_path = output_dir.join("entries.bin");

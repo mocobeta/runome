@@ -10,6 +10,7 @@ pub struct DictionaryResource {
     char_defs: CharDefinitions,
     unknowns: UnknownEntries,
     fst_bytes: Vec<u8>,
+    morpheme_index: Vec<Vec<u32>>,
 }
 
 impl DictionaryResource {
@@ -22,6 +23,7 @@ impl DictionaryResource {
         let char_defs = loader::load_char_definitions(sysdic_dir)?;
         let unknowns = loader::load_unknown_entries(sysdic_dir)?;
         let fst_bytes = loader::load_fst_bytes(sysdic_dir)?;
+        let morpheme_index = loader::load_morpheme_index(sysdic_dir)?;
 
         Ok(Self {
             entries,
@@ -29,6 +31,7 @@ impl DictionaryResource {
             char_defs,
             unknowns,
             fst_bytes,
+            morpheme_index,
         })
     }
 
@@ -179,6 +182,11 @@ impl DictionaryResource {
     /// Get FST bytes for creating Matcher instances
     pub fn get_fst_bytes(&self) -> &[u8] {
         &self.fst_bytes
+    }
+
+    /// Get morpheme index for mapping FST index IDs to vectors of morpheme IDs
+    pub fn get_morpheme_index(&self) -> &[Vec<u32>] {
+        &self.morpheme_index
     }
 
     /// Check if unknown word processing should always be invoked for category

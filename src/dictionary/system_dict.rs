@@ -826,6 +826,45 @@ mod tests {
         }
     }
 
+    #[test] 
+    fn test_debug_fst_lookup() {
+        // Simple debug test to check FST functionality with new encoding
+        let sysdic_path = get_test_sysdic_path();
+        if !sysdic_path.exists() {
+            eprintln!(
+                "Skipping test: sysdic directory not found at {:?}",
+                sysdic_path
+            );
+            return;
+        }
+
+        let sys_dict = SystemDictionary::instance();
+        assert!(sys_dict.is_ok(), "SystemDictionary creation should succeed");
+        let sys_dict = sys_dict.unwrap();
+
+        // Test a simple lookup
+        let test_words = ["形態素", "すもも", "東京"];
+        
+        for word in test_words {
+            eprintln!("=== Testing lookup for: {} ===", word);
+            
+            let result = sys_dict.lookup(word);
+            match result {
+                Ok(entries) => {
+                    eprintln!("Success! Found {} entries", entries.len());
+                    for (i, entry) in entries.iter().enumerate() {
+                        eprintln!("  [{}]: surface='{}', left_id={}, right_id={}, cost={}", 
+                            i, entry.surface, entry.left_id, entry.right_id, entry.cost);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Lookup failed: {:?}", e);
+                }
+            }
+            eprintln!();
+        }
+    }
+
     #[test]
     fn test_dictionary_ipadic() {
         // Equivalent to Python TestSystemDictionary.test_dictionary_ipadic()
@@ -851,7 +890,15 @@ mod tests {
         );
         let entries = morpheme_entries.unwrap();
 
-        // Verify we get expected entries (Python gets 7, we get 3 - this is expected due to implementation differences)
+        // Debug: Show what entries we're actually getting
+        eprintln!("=== Dictionary lookup for '形態素' ===");
+        eprintln!("Found {} entries:", entries.len());
+        for (i, entry) in entries.iter().enumerate() {
+            eprintln!("  [{}]: surface='{}', left_id={}, right_id={}, cost={}, pos='{}'", 
+                i, entry.surface, entry.left_id, entry.right_id, entry.cost, entry.part_of_speech);
+        }
+        
+        // Verify we get expected entries (Python gets 7, we should get them too with enhanced FST encoding)
         assert!(
             entries.len() == 7,
             "Expected 7 entries for '形態素', got {}",

@@ -70,25 +70,24 @@ impl Matcher {
     /// * `common_prefix_match` - If true, returns all prefixes; if false, exact match only
     ///
     /// # Returns
-    /// * `Ok((bool, Vec<u32>))` - Tuple of (matched, sorted morpheme_ids)
+    /// * `Ok((bool, Vec<u32>))` - Tuple of (matched, sorted index_ids)
     /// * `Err(RunomeError)` - Error if matching fails
     pub fn run(
         &self,
         word: &str,
         common_prefix_match: bool,
-    ) -> Result<(bool, Vec<u32>), RunomeError> {
-        let mut outputs = std::collections::HashSet::new();
+    ) -> Result<(bool, Vec<u64>), RunomeError> {
+        let mut all_index_ids = std::collections::HashSet::new();
 
         if common_prefix_match {
             // Find all prefixes of the word that match entries in the FST
-            // But only return complete word matches, not arbitrary prefixes
             for i in 1..=word.len() {
                 if let Some(byte_boundary) = self.find_char_boundary(word, i) {
                     let prefix = &word[..byte_boundary];
                     // Skip empty prefixes
                     if !prefix.is_empty() {
-                        if let Some(value) = self.fst.get(prefix) {
-                            outputs.insert(value as u32);
+                        if let Some(index_id) = self.fst.get(prefix) {
+                            all_index_ids.insert(index_id);
                         }
                     }
                 }
@@ -96,17 +95,39 @@ impl Matcher {
         } else {
             // Exact match only
             if !word.is_empty() {
-                if let Some(value) = self.fst.get(word) {
-                    outputs.insert(value as u32);
+                if let Some(index_id) = self.fst.get(word) {
+                    all_index_ids.insert(index_id);
                 }
             }
         }
 
-        let matched = !outputs.is_empty();
+        let matched = !all_index_ids.is_empty();
         // Convert HashSet to Vec and sort for deterministic ordering
-        let mut sorted_outputs: Vec<u32> = outputs.into_iter().collect();
+        let mut sorted_outputs: Vec<u64> = all_index_ids.into_iter().collect();
         sorted_outputs.sort_unstable();
         Ok((matched, sorted_outputs))
+    }
+
+    /// Decode FST index ID to morpheme IDs using separate morpheme index
+    ///
+    /// With the separate index approach, the FST stores simple index IDs,
+    /// and we use those to look up the actual morpheme IDs from the morpheme index.
+    ///
+    /// # Arguments
+    /// * `index_id` - The u64 index ID from FST
+    /// * `morpheme_index` - Reference to the morpheme index array
+    ///
+    /// # Returns
+    /// * `Vec<u32>` - Vector of morpheme IDs for this surface form
+    fn lookup_morpheme_ids(&self, index_id: u64, morpheme_index: &[Vec<u32>]) -> Vec<u32> {
+        // Simple lookup: FST index ID directly maps to morpheme index entry
+        if let Some(morpheme_ids) = morpheme_index.get(index_id as usize) {
+            morpheme_ids.clone()
+        } else {
+            // This should not happen if the data is consistent
+            eprintln!("Warning: Invalid morpheme index ID: {}", index_id);
+            Vec::new()
+        }
     }
 
     /// Find a character boundary at or before the given byte index
@@ -177,35 +198,41 @@ impl Dictionary for RAMDictionary {
             return Ok(Vec::new());
         }
 
-        // 1. Use matcher to get morpheme IDs matching the surface form
-        let (matched, morpheme_ids) = self.matcher.run(surface, true)?;
+        // 1. Use matcher to get index IDs matching the surface form
+        let (matched, index_ids) = self.matcher.run(surface, true)?;
 
         // 2. If no matches found, return empty vector
         if !matched {
             return Ok(Vec::new());
         }
 
-        // 3. Resolve morpheme IDs to dictionary entries using DictionaryResource
-        let mut results = Vec::new();
+        // 3. Get morpheme index and dictionary entries
+        let morpheme_index = self.resource.get_morpheme_index();
         let entries = self.resource.get_entries();
+        let mut results = Vec::new();
 
-        for morpheme_id in morpheme_ids {
-            // Validate morpheme ID is within bounds
-            if let Some(entry) = entries.get(morpheme_id as usize) {
-                // Filter out entries with empty surface forms
-                if !entry.surface.is_empty() {
-                    results.push(entry);
+        // 4. For each index ID, look up the morpheme IDs and resolve to entries
+        for index_id in index_ids {
+            let morpheme_ids = self.matcher.lookup_morpheme_ids(index_id, morpheme_index);
+            
+            for morpheme_id in morpheme_ids {
+                // Validate morpheme ID is within bounds
+                if let Some(entry) = entries.get(morpheme_id as usize) {
+                    // Filter out entries with empty surface forms
+                    if !entry.surface.is_empty() {
+                        results.push(entry);
+                    }
+                } else {
+                    // Log warning but continue processing other valid IDs
+                    eprintln!(
+                        "Warning: Invalid morpheme ID {} for surface '{}', skipping",
+                        morpheme_id, surface
+                    );
                 }
-            } else {
-                // Log warning but continue processing other valid IDs
-                eprintln!(
-                    "Warning: Invalid morpheme ID {} for surface '{}', skipping",
-                    morpheme_id, surface
-                );
             }
         }
 
-        // 4. Return references to DictEntry structs
+        // 5. Return references to DictEntry structs
         Ok(results)
     }
 

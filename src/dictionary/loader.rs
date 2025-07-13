@@ -47,6 +47,20 @@ pub fn load_unknown_entries(sysdic_dir: &Path) -> Result<UnknownEntries, RunomeE
     })
 }
 
+/// Load morpheme index from sysdic directory
+/// 
+/// The morpheme index maps FST index IDs to vectors of morpheme IDs,
+/// allowing storage of multiple morpheme IDs per surface form.
+pub fn load_morpheme_index(sysdic_dir: &Path) -> Result<Vec<Vec<u32>>, RunomeError> {
+    let file_path = validate_file_exists(sysdic_dir, "morpheme_index.bin")?;
+    let data = fs::read(&file_path)?;
+
+    bincode::deserialize(&data).map_err(|e| RunomeError::DictDeserializationError {
+        component: "morpheme_index".to_string(),
+        source: e,
+    })
+}
+
 /// Load FST bytes from sysdic directory
 pub fn load_fst_bytes(sysdic_dir: &Path) -> Result<Vec<u8>, RunomeError> {
     let file_path = validate_file_exists(sysdic_dir, "dic.fst")?;
