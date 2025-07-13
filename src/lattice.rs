@@ -634,7 +634,7 @@ impl<'a> Lattice<'a> {
                     // Tie-breaking: match Python's SurfaceNode behavior
                     // Python: enode.num < best_node.num (where num is morph_id)
                     let current_best = best_node.unwrap();
-                    
+
                     // Only apply tie-breaking if both nodes have morph_id (like SurfaceNode)
                     match (enode.morph_id(), current_best.morph_id()) {
                         (Some(enode_id), Some(best_id)) => {
@@ -896,7 +896,8 @@ impl<'a> Lattice<'a> {
                 // Should be BOS node
                 if current_node.surface() != "__BOS__" {
                     return Err(RunomeError::DictValidationError {
-                        reason: "Path trace reached node with back_pos=-1 but it's not BOS".to_string(),
+                        reason: "Path trace reached node with back_pos=-1 but it's not BOS"
+                            .to_string(),
                     });
                 }
                 break;
@@ -1551,12 +1552,18 @@ mod tests {
 
             let current_pos = lattice.position();
             let start_nodes = lattice.start_nodes(current_pos).unwrap();
-            assert!(!start_nodes.is_empty(), "Should have nodes after adding substring");
+            assert!(
+                !start_nodes.is_empty(),
+                "Should have nodes after adding substring"
+            );
         }
 
         // Step 3: Continue forward and lookup next substring
         let positions_moved_2 = lattice.forward();
-        assert!(positions_moved_2 >= 1, "Second forward should move at least one position");
+        assert!(
+            positions_moved_2 >= 1,
+            "Second forward should move at least one position"
+        );
 
         // Look up final substring if exists
         let final_remaining = &s[6..]; // Skip first two UTF-8 characters
@@ -1577,7 +1584,10 @@ mod tests {
 
         // Step 4: Final forward and end lattice
         let final_forward = lattice.forward();
-        assert!(final_forward >= 1, "Final forward should move at least one position");
+        assert!(
+            final_forward >= 1,
+            "Final forward should move at least one position"
+        );
 
         let end_result = lattice.end();
         assert!(end_result.is_ok(), "Lattice end should succeed");
@@ -1795,23 +1805,39 @@ mod tests {
 
         // Verify initial lattice state - mimic Python assertions
         let start_nodes_1 = lattice.start_nodes(1).unwrap();
-        
+
         // Python test: self.assertEqual(9, len(lattice.snodes[1]))
-        assert_eq!(start_nodes_1.len(), 9, "Should have 9 start nodes at position 1 like Python test");
-        
+        assert_eq!(
+            start_nodes_1.len(),
+            9,
+            "Should have 9 start nodes at position 1 like Python test"
+        );
+
         // Python test: self.assertEqual(7, len(lattice.enodes[2]))
         if let Some(end_nodes_2) = lattice.end_nodes(2) {
-            assert_eq!(end_nodes_2.len(), 7, "Should have 7 end nodes at position 2 like Python test");
+            assert_eq!(
+                end_nodes_2.len(),
+                7,
+                "Should have 7 end nodes at position 2 like Python test"
+            );
         }
-        
+
         // Python test: self.assertEqual(1, len(lattice.enodes[3]))
         if let Some(end_nodes_3) = lattice.end_nodes(3) {
-            assert_eq!(end_nodes_3.len(), 1, "Should have 1 end node at position 3 like Python test");
+            assert_eq!(
+                end_nodes_3.len(),
+                1,
+                "Should have 1 end node at position 3 like Python test"
+            );
         }
-        
+
         // Python test: self.assertEqual(1, len(lattice.enodes[4]))
         if let Some(end_nodes_4) = lattice.end_nodes(4) {
-            assert_eq!(end_nodes_4.len(), 1, "Should have 1 end node at position 4 like Python test");
+            assert_eq!(
+                end_nodes_4.len(),
+                1,
+                "Should have 1 end node at position 4 like Python test"
+            );
         }
 
         // Step 2: Move forward (equivalent to lattice.forward() in Python)
@@ -1824,7 +1850,7 @@ mod tests {
         // Step 3: Look up substring "もも" (s[1:] in Python - character-based slicing)
         let chars: Vec<char> = s.chars().collect();
         let substring: String = chars[1..].iter().collect(); // Skip first character "す"
-        
+
         if !substring.is_empty() {
             let substring_entries_result = sys_dict.lookup(&substring);
             assert!(
@@ -1842,18 +1868,30 @@ mod tests {
             // Verify node counts match Python test expectations
             let current_pos = lattice.position();
             let start_nodes = lattice.start_nodes(current_pos).unwrap();
-            
+
             // Python test: self.assertEqual(4, len(lattice.snodes[2]))
-            assert_eq!(start_nodes.len(), 4, "Should have 4 start nodes at position 2 like Python test");
-            
+            assert_eq!(
+                start_nodes.len(),
+                4,
+                "Should have 4 start nodes at position 2 like Python test"
+            );
+
             // Python test: self.assertEqual(3, len(lattice.enodes[3]))
             if let Some(end_nodes_3) = lattice.end_nodes(3) {
-                assert_eq!(end_nodes_3.len(), 3, "Should have 3 end nodes at position 3 like Python test");
+                assert_eq!(
+                    end_nodes_3.len(),
+                    3,
+                    "Should have 3 end nodes at position 3 like Python test"
+                );
             }
-            
-            // Python test: self.assertEqual(3, len(lattice.enodes[4]))  
+
+            // Python test: self.assertEqual(3, len(lattice.enodes[4]))
             if let Some(end_nodes_4) = lattice.end_nodes(4) {
-                assert_eq!(end_nodes_4.len(), 3, "Should have 3 end nodes at position 4 like Python test");
+                assert_eq!(
+                    end_nodes_4.len(),
+                    3,
+                    "Should have 3 end nodes at position 4 like Python test"
+                );
             }
         }
 
@@ -1866,7 +1904,7 @@ mod tests {
 
         // Step 5: Look up final substring "も" (s[2:] in Python - character-based slicing)
         let final_substring: String = chars[2..].iter().collect(); // Skip first two characters "すも"
-        
+
         if !final_substring.is_empty() {
             let final_entries_result = sys_dict.lookup(&final_substring);
             assert!(
@@ -1884,13 +1922,21 @@ mod tests {
             // Verify node counts match Python test expectations
             let current_pos = lattice.position();
             let start_nodes = lattice.start_nodes(current_pos).unwrap();
-            
+
             // Python test: self.assertEqual(2, len(lattice.snodes[3]))
-            assert_eq!(start_nodes.len(), 2, "Should have 2 start nodes at position 3 like Python test");
-            
+            assert_eq!(
+                start_nodes.len(),
+                2,
+                "Should have 2 start nodes at position 3 like Python test"
+            );
+
             // Python test: self.assertEqual(5, len(lattice.enodes[4]))
             if let Some(end_nodes_4) = lattice.end_nodes(4) {
-                assert_eq!(end_nodes_4.len(), 5, "Should have 5 end nodes at position 4 like Python test");
+                assert_eq!(
+                    end_nodes_4.len(),
+                    5,
+                    "Should have 5 end nodes at position 4 like Python test"
+                );
             }
         }
 
@@ -1908,15 +1954,26 @@ mod tests {
         // Verify EOS was added - match Python test assertions
         let final_pos = lattice.position();
         let final_nodes = lattice.start_nodes(final_pos).unwrap();
-        
+
         // Python test: self.assertTrue(isinstance(lattice.snodes[4][0], EOS))
-        assert!(!final_nodes.is_empty(), "Should have EOS node at final position");
-        assert_eq!(final_nodes[0].surface(), "__EOS__", "Final node should be EOS");
-        
+        assert!(
+            !final_nodes.is_empty(),
+            "Should have EOS node at final position"
+        );
+        assert_eq!(
+            final_nodes[0].surface(),
+            "__EOS__",
+            "Final node should be EOS"
+        );
+
         // Python test: self.assertTrue(isinstance(lattice.enodes[5][0], EOS))
         if let Some(end_nodes_5) = lattice.end_nodes(final_pos + 1) {
             if !end_nodes_5.is_empty() {
-                assert_eq!(end_nodes_5[0].surface(), "__EOS__", "EOS should appear in end nodes");
+                assert_eq!(
+                    end_nodes_5[0].surface(),
+                    "__EOS__",
+                    "EOS should appear in end nodes"
+                );
             }
         }
     }
@@ -1949,7 +2006,11 @@ mod tests {
 
         // Verify path structure
         assert_eq!(path[0].surface(), "__BOS__", "First node should be BOS");
-        assert_eq!(path[1].surface(), "テスト", "Second node should be our test node");
+        assert_eq!(
+            path[1].surface(),
+            "テスト",
+            "Second node should be our test node"
+        );
         assert_eq!(path[2].surface(), "__EOS__", "Third node should be EOS");
     }
 
@@ -1960,7 +2021,10 @@ mod tests {
 
         // Try backward on lattice without EOS
         let path_result = lattice.backward();
-        assert!(path_result.is_err(), "Backward should fail on unfinalized lattice");
+        assert!(
+            path_result.is_err(),
+            "Backward should fail on unfinalized lattice"
+        );
     }
 
     #[test]
@@ -2060,11 +2124,11 @@ mod tests {
         // Process the entire string character by character
         let mut pos = 0;
         let chars: Vec<char> = s.chars().collect();
-        
+
         while pos < chars.len() {
             // Get substring from current position
             let remaining: String = chars[pos..].iter().collect();
-            
+
             // Look up dictionary entries for remaining substring
             let entries_result = sys_dict.lookup(&remaining);
             assert!(entries_result.is_ok(), "Dictionary lookup should succeed");
@@ -2091,29 +2155,38 @@ mod tests {
         let path = path_result.unwrap();
 
         // Verify path structure matches Python test expectations
-        assert!(path.len() >= 3, "Path should have at least BOS, some words, EOS");
+        assert!(
+            path.len() >= 3,
+            "Path should have at least BOS, some words, EOS"
+        );
         assert_eq!(path[0].surface(), "__BOS__", "Path should start with BOS");
-        assert_eq!(path[path.len() - 1].surface(), "__EOS__", "Path should end with EOS");
+        assert_eq!(
+            path[path.len() - 1].surface(),
+            "__EOS__",
+            "Path should end with EOS"
+        );
 
         // Verify all nodes in path are connected properly
         for i in 1..path.len() {
             let prev_node = path[i - 1];
             let curr_node = path[i];
-            
+
             // Current node should point back to previous node
             if curr_node.surface() != "__EOS__" {
                 // EOS might have different back_pos due to lattice structure
                 assert_eq!(
-                    curr_node.back_pos() as usize, 
+                    curr_node.back_pos() as usize,
                     prev_node.pos(),
-                    "Node {} should point back to node {} position", 
-                    i, i - 1
+                    "Node {} should point back to node {} position",
+                    i,
+                    i - 1
                 );
                 assert_eq!(
-                    curr_node.back_index() as usize, 
+                    curr_node.back_index() as usize,
                     prev_node.index(),
-                    "Node {} should point back to node {} index", 
-                    i, i - 1
+                    "Node {} should point back to node {} index",
+                    i,
+                    i - 1
                 );
             }
         }
@@ -2123,7 +2196,7 @@ mod tests {
             .iter()
             .map(|node| node.surface())
             .collect();
-        
+
         assert_eq!(
             reconstructed, s,
             "Reconstructed text should match original input"
@@ -2160,11 +2233,11 @@ mod tests {
         // Process exactly like Python test - character by character
         let mut pos = 0;
         let chars: Vec<char> = s.chars().collect();
-        
+
         while pos < chars.len() {
             // Get substring from current position (same as s[pos:] in Python)
             let remaining: String = chars[pos..].iter().collect();
-            
+
             // Look up dictionary entries
             let entries_result = sys_dict.lookup(&remaining);
             assert!(entries_result.is_ok(), "Dictionary lookup should succeed");
@@ -2198,62 +2271,72 @@ mod tests {
         // Verify results match Python test expectations:
         // Python test asserts: self.assertEqual(9, len(min_cost_path))
         assert_eq!(
-            min_cost_path.len(), 9,
+            min_cost_path.len(),
+            9,
             "Path length should be 9 like Python test, got {}",
             min_cost_path.len()
         );
 
         // Python test: self.assertTrue(isinstance(min_cost_path[0], BOS))
         assert_eq!(
-            min_cost_path[0].surface(), "__BOS__",
+            min_cost_path[0].surface(),
+            "__BOS__",
             "First node should be BOS"
         );
 
         // Python test: self.assertEqual('すもも', min_cost_path[1].surface)
         assert_eq!(
-            min_cost_path[1].surface(), "すもも",
+            min_cost_path[1].surface(),
+            "すもも",
             "Second node should be 'すもも'"
         );
 
         // Python test: self.assertEqual('も', min_cost_path[2].surface)
         assert_eq!(
-            min_cost_path[2].surface(), "も",
+            min_cost_path[2].surface(),
+            "も",
             "Third node should be 'も'"
         );
 
         // Python test: self.assertEqual('もも', min_cost_path[3].surface)
         assert_eq!(
-            min_cost_path[3].surface(), "もも",
+            min_cost_path[3].surface(),
+            "もも",
             "Fourth node should be 'もも'"
         );
 
         // Python test: self.assertEqual('も', min_cost_path[4].surface)
         assert_eq!(
-            min_cost_path[4].surface(), "も",
+            min_cost_path[4].surface(),
+            "も",
             "Fifth node should be 'も'"
         );
 
         // Python test: self.assertEqual('もも', min_cost_path[5].surface)
         assert_eq!(
-            min_cost_path[5].surface(), "もも",
+            min_cost_path[5].surface(),
+            "もも",
             "Sixth node should be 'もも'"
         );
 
         // Python test: self.assertEqual('の', min_cost_path[6].surface)
         assert_eq!(
-            min_cost_path[6].surface(), "の",
+            min_cost_path[6].surface(),
+            "の",
             "Seventh node should be 'の'"
         );
 
         // Python test: self.assertEqual('うち', min_cost_path[7].surface)
         assert_eq!(
-            min_cost_path[7].surface(), "うち",
+            min_cost_path[7].surface(),
+            "うち",
             "Eighth node should be 'うち'"
         );
 
         // Python test: self.assertTrue(isinstance(min_cost_path[8], EOS))
         assert_eq!(
-            min_cost_path[8].surface(), "__EOS__",
+            min_cost_path[8].surface(),
+            "__EOS__",
             "Ninth node should be EOS"
         );
 
@@ -2262,7 +2345,7 @@ mod tests {
             .iter()
             .map(|node| node.surface())
             .collect();
-        
+
         assert_eq!(
             reconstructed, s,
             "Reconstructed text should match original input"

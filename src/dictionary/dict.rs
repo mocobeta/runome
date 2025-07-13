@@ -81,18 +81,24 @@ impl Matcher {
 
         if common_prefix_match {
             // Find all prefixes of the word that match entries in the FST
+            // But only return complete word matches, not arbitrary prefixes
             for i in 1..=word.len() {
                 if let Some(byte_boundary) = self.find_char_boundary(word, i) {
                     let prefix = &word[..byte_boundary];
-                    if let Some(value) = self.fst.get(prefix) {
-                        outputs.insert(value as u32);
+                    // Skip empty prefixes
+                    if !prefix.is_empty() {
+                        if let Some(value) = self.fst.get(prefix) {
+                            outputs.insert(value as u32);
+                        }
                     }
                 }
             }
         } else {
             // Exact match only
-            if let Some(value) = self.fst.get(word) {
-                outputs.insert(value as u32);
+            if !word.is_empty() {
+                if let Some(value) = self.fst.get(word) {
+                    outputs.insert(value as u32);
+                }
             }
         }
 
@@ -186,7 +192,10 @@ impl Dictionary for RAMDictionary {
         for morpheme_id in morpheme_ids {
             // Validate morpheme ID is within bounds
             if let Some(entry) = entries.get(morpheme_id as usize) {
-                results.push(entry);
+                // Filter out entries with empty surface forms
+                if !entry.surface.is_empty() {
+                    results.push(entry);
+                }
             } else {
                 // Log warning but continue processing other valid IDs
                 eprintln!(

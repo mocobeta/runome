@@ -825,4 +825,234 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_dictionary_ipadic() {
+        // Equivalent to Python TestSystemDictionary.test_dictionary_ipadic()
+        let sysdic_path = get_test_sysdic_path();
+        if !sysdic_path.exists() {
+            eprintln!(
+                "Skipping test: sysdic directory not found at {:?}",
+                sysdic_path
+            );
+            return;
+        }
+
+        let sys_dict = SystemDictionary::instance();
+        assert!(sys_dict.is_ok(), "SystemDictionary creation should succeed");
+        let sys_dict = sys_dict.unwrap();
+
+        // Test 1: Dictionary lookup - equivalent to sys_dic.lookup('形態素'.encode('utf-8'), matcher)
+        // Note: Python test expects 7 entries, our Rust implementation finds 3 due to different dictionary handling
+        let morpheme_entries = sys_dict.lookup("形態素");
+        assert!(
+            morpheme_entries.is_ok(),
+            "Lookup for '形態素' should succeed"
+        );
+        let entries = morpheme_entries.unwrap();
+
+        // Verify we get expected entries (Python gets 7, we get 3 - this is expected due to implementation differences)
+        assert!(
+            entries.len() == 7,
+            "Expected 7 entries for '形態素', got {}",
+            entries.len()
+        );
+
+        // Verify that we find the exact match "形態素"
+        let exact_match = entries.iter().find(|e| e.surface == "形態素");
+        assert!(
+            exact_match.is_some(),
+            "Should find exact match for '形態素'"
+        );
+
+        // Verify entries have valid structure
+        for entry in &entries {
+            assert!(
+                !entry.surface.is_empty(),
+                "Entry surface should not be empty"
+            );
+            assert!(
+                !entry.part_of_speech.is_empty(),
+                "Entry part_of_speech should not be empty"
+            );
+            assert!(entry.left_id > 0, "Entry should have valid left_id");
+            assert!(entry.right_id > 0, "Entry should have valid right_id");
+        }
+
+        // Test 2: Transition cost - equivalent to sys_dic.get_trans_cost(0, 1)
+        let trans_cost = sys_dict.get_trans_cost(0, 1);
+        assert!(trans_cost.is_ok(), "Getting transition cost should succeed");
+        assert_eq!(
+            trans_cost.unwrap(),
+            1,
+            "Transition cost from 0 to 1 should be 1 like Python test"
+        );
+
+        // Test 3: Character classification tests - equivalent to sys_dic.get_char_categories()
+        // Each test verifies specific character categories match Python expectations
+
+        // Hiragana: 'は' → {'HIRAGANA': []}
+        let hiragana_cats = sys_dict.get_char_categories('は');
+        assert!(
+            hiragana_cats.contains_key("HIRAGANA"),
+            "Character 'は' should have HIRAGANA category"
+        );
+        assert_eq!(
+            hiragana_cats.get("HIRAGANA").unwrap(),
+            &Vec::<String>::new(),
+            "HIRAGANA category should have empty compatibility list"
+        );
+
+        // Katakana: 'ハ' → {'KATAKANA': []}
+        let katakana_cats = sys_dict.get_char_categories('ハ');
+        assert!(
+            katakana_cats.contains_key("KATAKANA"),
+            "Character 'ハ' should have KATAKANA category"
+        );
+        assert_eq!(
+            katakana_cats.get("KATAKANA").unwrap(),
+            &Vec::<String>::new(),
+            "KATAKANA category should have empty compatibility list"
+        );
+
+        // Half-width Katakana: 'ﾊ' → {'KATAKANA': []}
+        let halfwidth_katakana_cats = sys_dict.get_char_categories('ﾊ');
+        assert!(
+            halfwidth_katakana_cats.contains_key("KATAKANA"),
+            "Character 'ﾊ' should have KATAKANA category"
+        );
+
+        // Kanji: '葉' → {'KANJI': []}
+        let kanji_cats = sys_dict.get_char_categories('葉');
+        assert!(
+            kanji_cats.contains_key("KANJI"),
+            "Character '葉' should have KANJI category"
+        );
+        assert_eq!(
+            kanji_cats.get("KANJI").unwrap(),
+            &Vec::<String>::new(),
+            "KANJI category should have empty compatibility list"
+        );
+
+        // ASCII alphabetic: 'C' → {'ALPHA': []}
+        let alpha_cats = sys_dict.get_char_categories('C');
+        assert!(
+            alpha_cats.contains_key("ALPHA"),
+            "Character 'C' should have ALPHA category"
+        );
+
+        // Full-width alphabetic: 'Ｃ' → {'ALPHA': []}
+        let fullwidth_alpha_cats = sys_dict.get_char_categories('Ｃ');
+        assert!(
+            fullwidth_alpha_cats.contains_key("ALPHA"),
+            "Character 'Ｃ' should have ALPHA category"
+        );
+
+        // Symbol: '#' → {'SYMBOL': []}
+        let symbol_cats = sys_dict.get_char_categories('#');
+        assert!(
+            symbol_cats.contains_key("SYMBOL"),
+            "Character '#' should have SYMBOL category"
+        );
+
+        // Full-width symbol: '＃' → {'SYMBOL': []}
+        let fullwidth_symbol_cats = sys_dict.get_char_categories('＃');
+        assert!(
+            fullwidth_symbol_cats.contains_key("SYMBOL"),
+            "Character '＃' should have SYMBOL category"
+        );
+
+        // Numeric: '5' → {'NUMERIC': []}
+        let numeric_cats = sys_dict.get_char_categories('5');
+        assert!(
+            numeric_cats.contains_key("NUMERIC"),
+            "Character '5' should have NUMERIC category"
+        );
+
+        // Full-width numeric: '５' → {'NUMERIC': []}
+        let fullwidth_numeric_cats = sys_dict.get_char_categories('５');
+        assert!(
+            fullwidth_numeric_cats.contains_key("NUMERIC"),
+            "Character '５' should have NUMERIC category"
+        );
+
+        // Kanji numeric: '五' → {'KANJI': [], 'KANJINUMERIC': ['KANJI']}
+        let kanji_numeric_cats = sys_dict.get_char_categories('五');
+        assert!(
+            kanji_numeric_cats.contains_key("KANJI"),
+            "Character '五' should have KANJI category"
+        );
+        assert!(
+            kanji_numeric_cats.contains_key("KANJINUMERIC"),
+            "Character '五' should have KANJINUMERIC category"
+        );
+        // KANJINUMERIC should have KANJI in compatibility list
+        let kanjinumeric_compat = kanji_numeric_cats.get("KANJINUMERIC").unwrap();
+        assert!(
+            kanjinumeric_compat.contains(&"KANJI".to_string()),
+            "KANJINUMERIC category should have KANJI in compatibility list"
+        );
+
+        // Greek: 'Γ' → {'GREEK': []}
+        let greek_cats = sys_dict.get_char_categories('Γ');
+        assert!(
+            greek_cats.contains_key("GREEK"),
+            "Character 'Γ' should have GREEK category"
+        );
+
+        // Cyrillic: 'Б' → {'CYRILLIC': []}
+        let cyrillic_cats = sys_dict.get_char_categories('Б');
+        assert!(
+            cyrillic_cats.contains_key("CYRILLIC"),
+            "Character 'Б' should have CYRILLIC category"
+        );
+
+        // Default category for variant kanji: '𠮷' → {'DEFAULT': []}
+        let variant_kanji_cats = sys_dict.get_char_categories('𠮷');
+        assert!(
+            variant_kanji_cats.contains_key("DEFAULT"),
+            "Character '𠮷' should have DEFAULT category"
+        );
+
+        // Default category for Korean: '한' → {'DEFAULT': []}
+        let korean_cats = sys_dict.get_char_categories('한');
+        assert!(
+            korean_cats.contains_key("DEFAULT"),
+            "Character '한' should have DEFAULT category"
+        );
+
+        // Test 4: Unknown word processing properties
+        // equivalent to sys_dic.unknown_invoked_always(), unknown_grouping(), unknown_length()
+
+        // ALPHA characters should always invoke unknown word processing
+        assert!(
+            sys_dict.unknown_invoked_always("ALPHA"),
+            "ALPHA category should always invoke unknown word processing"
+        );
+
+        // KANJI characters should not always invoke unknown word processing
+        assert!(
+            !sys_dict.unknown_invoked_always("KANJI"),
+            "KANJI category should not always invoke unknown word processing"
+        );
+
+        // NUMERIC characters should be grouped
+        assert!(
+            sys_dict.unknown_grouping("NUMERIC"),
+            "NUMERIC category should enable grouping"
+        );
+
+        // KANJI characters should not be grouped
+        assert!(
+            !sys_dict.unknown_grouping("KANJI"),
+            "KANJI category should not enable grouping"
+        );
+
+        // HIRAGANA unknown word length should be 2
+        assert_eq!(
+            sys_dict.unknown_length("HIRAGANA"),
+            2,
+            "HIRAGANA category should have unknown word length of 2"
+        );
+    }
 }
