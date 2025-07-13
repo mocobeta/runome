@@ -129,7 +129,7 @@ impl fmt::Display for TokenizeResult {
 }
 
 /// Iterator for streaming tokenization results
-pub struct TokenIterator<'a> {
+pub struct TextChunkIterator<'a> {
     tokenizer: &'a Tokenizer,
     text: &'a str,
     processed: usize,
@@ -138,7 +138,7 @@ pub struct TokenIterator<'a> {
     baseform_unk: bool,
 }
 
-impl<'a> Iterator for TokenIterator<'a> {
+impl<'a> Iterator for TextChunkIterator<'a> {
     type Item = Result<TokenizeResult, RunomeError>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -225,8 +225,8 @@ impl Tokenizer {
         text: &'a str,
         wakati: bool,
         baseform_unk: bool,
-    ) -> TokenIterator<'a> {
-        TokenIterator {
+    ) -> TextChunkIterator<'a> {
+        TextChunkIterator {
             tokenizer: self,
             text: text.trim(),
             processed: 0,
