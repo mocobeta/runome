@@ -1,4 +1,6 @@
-use crate::dictionary::DictEntry;
+use std::sync::Arc;
+
+use crate::dictionary::{DictEntry, Dictionary};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeType {
@@ -8,7 +10,7 @@ pub enum NodeType {
 }
 
 /// Trait for all lattice nodes providing common interface for Viterbi algorithm
-pub trait LatticeNode {
+pub trait LatticeNode: std::fmt::Debug {
     /// Get the surface form of this node
     fn surface(&self) -> &str;
 
@@ -466,10 +468,136 @@ impl LatticeNode for EOS {
     }
 }
 
+/// Lattice structure for Viterbi algorithm-based morphological analysis
+pub struct Lattice<'a> {
+    /// Start nodes at each position - snodes[pos][index]
+    snodes: Vec<Vec<Box<dyn LatticeNode + 'a>>>,
+    /// End nodes at each position - enodes[pos][index]  
+    enodes: Vec<Vec<Box<dyn LatticeNode + 'a>>>,
+    /// Current position pointer
+    p: usize,
+    /// Dictionary reference for connection cost lookups
+    dic: Arc<dyn Dictionary>,
+}
+
+impl<'a> Lattice<'a> {
+    /// Create a new lattice with the specified size and dictionary
+    ///
+    /// Initializes the lattice with BOS node at position 0 and pre-allocates
+    /// vectors for the specified size.
+    ///
+    /// # Arguments
+    /// * `size` - Maximum number of positions in the lattice
+    /// * `dic` - Dictionary reference for connection cost calculations
+    ///
+    /// # Returns
+    /// * New Lattice instance with BOS node initialized
+    pub fn new(size: usize, dic: Arc<dyn Dictionary>) -> Self {
+        // Initialize snodes and enodes vectors
+        // We need positions 0 through size+1 (size+2 total positions)
+        let mut snodes = Vec::with_capacity(size + 2);
+        let mut enodes = Vec::with_capacity(size + 2);
+
+        // Initialize all positions as empty first
+        for _ in 0..=(size + 1) {
+            snodes.push(Vec::new());
+            enodes.push(Vec::new());
+        }
+
+        // Position 0: BOS node in snodes
+        let mut bos = Box::new(BOS::new()) as Box<dyn LatticeNode + 'a>;
+        bos.set_pos(0);
+        bos.set_index(0);
+        snodes[0].push(bos);
+
+        // Position 1: BOS node also appears in enodes[1] for connections
+        let mut bos_end = Box::new(BOS::new()) as Box<dyn LatticeNode + 'a>;
+        bos_end.set_pos(0);
+        bos_end.set_index(0);
+        enodes[1].push(bos_end);
+
+        Self {
+            snodes,
+            enodes,
+            p: 1, // Start at position 1 (after BOS)
+            dic,
+        }
+    }
+
+    /// Get the current position in the lattice
+    pub fn position(&self) -> usize {
+        self.p
+    }
+
+    /// Get the total number of positions in the lattice
+    pub fn size(&self) -> usize {
+        self.snodes.len().saturating_sub(1)
+    }
+
+    /// Get reference to start nodes at the specified position
+    pub fn start_nodes(&self, pos: usize) -> Option<&Vec<Box<dyn LatticeNode + 'a>>> {
+        self.snodes.get(pos)
+    }
+
+    /// Get reference to end nodes at the specified position
+    pub fn end_nodes(&self, pos: usize) -> Option<&Vec<Box<dyn LatticeNode + 'a>>> {
+        self.enodes.get(pos)
+    }
+
+    /// Check if the lattice is properly initialized
+    pub fn is_valid(&self) -> bool {
+        // Must have at least BOS position
+        if self.snodes.is_empty() || self.enodes.is_empty() {
+            return false;
+        }
+
+        // Position 0 must contain exactly one BOS node
+        if let Some(start_nodes) = self.snodes.first() {
+            if start_nodes.len() != 1 {
+                return false;
+            }
+            // Check if it's actually a BOS node
+            if start_nodes[0].surface() != "__BOS__" {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // Position 1 in enodes must contain the BOS node for connections
+        if let Some(end_nodes) = self.enodes.get(1) {
+            if end_nodes.is_empty() {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        true
+    }
+
+    /// Get a reference to the dictionary
+    pub fn dictionary(&self) -> &Arc<dyn Dictionary> {
+        &self.dic
+    }
+}
+
+impl<'a> std::fmt::Debug for Lattice<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Lattice")
+            .field("p", &self.p)
+            .field("size", &self.size())
+            .field("snodes_len", &self.snodes.len())
+            .field("enodes_len", &self.enodes.len())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dictionary::DictEntry;
+    use std::sync::Arc;
 
     fn create_test_dict_entry() -> DictEntry {
         DictEntry {
@@ -617,5 +745,121 @@ mod tests {
         };
         let node_jp = Node::new(&dict_entry_jp, NodeType::SysDict);
         assert_eq!(node_jp.surface_len(), 5); // 5 characters, not bytes
+    }
+
+    // Mock dictionary for testing
+    struct MockDictionary;
+
+    impl crate::dictionary::Dictionary for MockDictionary {
+        fn lookup(&self, _surface: &str) -> Result<Vec<&DictEntry>, crate::error::RunomeError> {
+            Ok(Vec::new()) // Return empty for testing
+        }
+
+        fn get_trans_cost(
+            &self,
+            _left_id: u16,
+            _right_id: u16,
+        ) -> Result<i16, crate::error::RunomeError> {
+            Ok(100) // Return fixed cost for testing
+        }
+    }
+
+    fn create_mock_dictionary() -> Arc<dyn crate::dictionary::Dictionary> {
+        Arc::new(MockDictionary)
+    }
+
+    #[test]
+    fn test_lattice_creation() {
+        let dic = create_mock_dictionary();
+        let lattice = Lattice::new(10, dic);
+
+        // Check basic properties
+        assert_eq!(lattice.position(), 1); // Starts at position 1
+        assert_eq!(lattice.size(), 11); // Should be size + 1
+        assert!(lattice.is_valid());
+
+        // Check BOS node at position 0
+        let start_nodes = lattice.start_nodes(0).unwrap();
+        assert_eq!(start_nodes.len(), 1);
+        assert_eq!(start_nodes[0].surface(), "__BOS__");
+        assert_eq!(start_nodes[0].pos(), 0);
+        assert_eq!(start_nodes[0].index(), 0);
+
+        // Check BOS also appears in enodes[1] for connections
+        let end_nodes = lattice.end_nodes(1).unwrap();
+        assert_eq!(end_nodes.len(), 1);
+        assert_eq!(end_nodes[0].surface(), "__BOS__");
+    }
+
+    #[test]
+    fn test_lattice_validation() {
+        let dic = create_mock_dictionary();
+        let lattice = Lattice::new(5, dic);
+
+        // Should be valid after creation
+        assert!(lattice.is_valid());
+
+        // Test validation logic
+        assert!(lattice.start_nodes(0).is_some());
+        assert!(lattice.end_nodes(1).is_some());
+    }
+
+    #[test]
+    fn test_lattice_empty_positions() {
+        let dic = create_mock_dictionary();
+        let lattice = Lattice::new(3, dic);
+
+        // Positions 1, 2, 3 should be empty initially (except enodes[1] has BOS)
+        assert_eq!(lattice.start_nodes(1).unwrap().len(), 0);
+        assert_eq!(lattice.start_nodes(2).unwrap().len(), 0);
+        assert_eq!(lattice.start_nodes(3).unwrap().len(), 0);
+
+        // Only enodes[1] should have the BOS node, others empty
+        assert_eq!(lattice.end_nodes(0).unwrap().len(), 0);
+        assert_eq!(lattice.end_nodes(2).unwrap().len(), 0);
+        assert_eq!(lattice.end_nodes(3).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_lattice_bounds_checking() {
+        let dic = create_mock_dictionary();
+        let lattice = Lattice::new(2, dic);
+
+        // Valid positions
+        assert!(lattice.start_nodes(0).is_some());
+        assert!(lattice.start_nodes(1).is_some());
+        assert!(lattice.start_nodes(2).is_some());
+
+        // Out of bounds positions should return None
+        assert!(lattice.start_nodes(10).is_none());
+        assert!(lattice.end_nodes(10).is_none());
+    }
+
+    #[test]
+    fn test_lattice_dictionary_access() {
+        let dic = create_mock_dictionary();
+        let lattice = Lattice::new(5, dic.clone());
+
+        // Should be able to access the dictionary
+        let lattice_dic = lattice.dictionary();
+
+        // Test that it's the same dictionary (using Arc)
+        assert!(Arc::ptr_eq(lattice_dic, &dic));
+    }
+
+    #[test]
+    fn test_lattice_zero_size() {
+        let dic = create_mock_dictionary();
+        let lattice = Lattice::new(0, dic);
+
+        // Should still be valid with just BOS
+        assert!(lattice.is_valid());
+        assert_eq!(lattice.position(), 1);
+        assert_eq!(lattice.size(), 1); // Just position 0
+
+        // Should have BOS at position 0
+        let start_nodes = lattice.start_nodes(0).unwrap();
+        assert_eq!(start_nodes.len(), 1);
+        assert_eq!(start_nodes[0].surface(), "__BOS__");
     }
 }
