@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use super::{Dictionary, DictionaryResource, RAMDictionary};
-use crate::dictionary::types::DictEntry;
+use crate::dictionary::types::{DictEntry, UnknownEntry};
 use crate::error::RunomeError;
 
 /// SystemDictionary combines known word lookup with character classification
@@ -159,6 +159,118 @@ impl SystemDictionary {
     /// Length constraint (-1 = no limit, positive = max length)
     pub fn unknown_length(&self, category: &str) -> i32 {
         self.ram_dict.get_resource().unknown_length(category)
+    }
+
+    /// Get unknown word entries for a character category
+    ///
+    /// Returns the list of unknown word templates for the given category.
+    /// These templates define the morphological properties (cost, part-of-speech, etc.)
+    /// for unknown words of this category.
+    ///
+    /// # Arguments
+    /// * `category` - Character category name
+    ///
+    /// # Returns
+    /// Option containing slice of unknown entries for this category
+    pub fn get_unknown_entries(&self, category: &str) -> Option<&[crate::dictionary::UnknownEntry]> {
+        self.ram_dict.get_resource().get_unknown_entries(category)
+    }
+
+    /// Get character categories for a given character (Result version)
+    ///
+    /// Returns the list of character categories that apply to the given character.
+    /// This is used for unknown word processing to determine how to handle
+    /// characters not found in the dictionary.
+    ///
+    /// # Arguments
+    /// * `c` - Character to classify
+    ///
+    /// # Returns
+    /// * `Ok(Vec<String>)` - Vector of category names that apply to this character
+    /// * `Err(RunomeError)` - Error if character classification fails
+    pub fn get_char_categories_result(&self, c: char) -> Result<Vec<String>, RunomeError> {
+        let categories = self.get_char_categories(c);
+        let mut result = Vec::new();
+        
+        // Add primary categories and their compatible categories
+        for (category, compat_categories) in categories {
+            result.push(category);
+            result.extend(compat_categories);
+        }
+        
+        Ok(result)
+    }
+
+    /// Get unknown word entries for a character category (Result version)
+    ///
+    /// Returns the list of unknown word templates for the given category.
+    /// These templates define the morphological properties (cost, part-of-speech, etc.)
+    /// for unknown words of this category.
+    ///
+    /// # Arguments
+    /// * `category` - Character category name
+    ///
+    /// # Returns
+    /// * `Ok(Vec<&UnknownEntry>)` - Vector of unknown word entries for this category
+    /// * `Err(RunomeError)` - Error if category is not found
+    pub fn get_unknown_entries_result(&self, category: &str) -> Result<Vec<&UnknownEntry>, RunomeError> {
+        match self.get_unknown_entries(category) {
+            Some(entries) => Ok(entries.iter().collect()),
+            None => Err(RunomeError::DictValidationError {
+                reason: format!("Unknown category: {}", category),
+            }),
+        }
+    }
+
+    /// Check if unknown word processing should always be invoked for this category (Result version)
+    ///
+    /// Returns true if unknown word processing should be performed even when
+    /// dictionary entries are found. This is used for categories like numbers
+    /// that may have both dictionary entries and unknown word processing.
+    ///
+    /// # Arguments
+    /// * `category` - Character category name
+    ///
+    /// # Returns
+    /// * `Ok(bool)` - True if unknown processing should always be invoked
+    /// * `Err(RunomeError)` - Error if category is not found
+    pub fn unknown_invoked_always_result(&self, category: &str) -> Result<bool, RunomeError> {
+        Ok(self.unknown_invoked_always(category))
+    }
+
+    /// Check if unknown words of this category should be grouped together (Result version)
+    ///
+    /// Returns true if consecutive characters of the same category should be
+    /// grouped into a single unknown word (e.g., "2009" instead of "2", "0", "0", "9").
+    ///
+    /// # Arguments
+    /// * `category` - Character category name
+    ///
+    /// # Returns
+    /// * `Ok(bool)` - True if characters should be grouped
+    /// * `Err(RunomeError)` - Error if category is not found
+    pub fn unknown_grouping_result(&self, category: &str) -> Result<bool, RunomeError> {
+        Ok(self.unknown_grouping(category))
+    }
+
+    /// Get the maximum length for unknown words of this category (Result version)
+    ///
+    /// Returns the maximum number of characters that can be grouped together
+    /// for unknown words of this category.
+    ///
+    /// # Arguments
+    /// * `category` - Character category name
+    ///
+    /// # Returns
+    /// * `Ok(usize)` - Maximum length for this category
+    /// * `Err(RunomeError)` - Error if category is not found
+    pub fn unknown_length_result(&self, category: &str) -> Result<usize, RunomeError> {
+        let length = self.unknown_length(category);
+        if length <= 0 {
+            Ok(usize::MAX) // -1 or 0 means no limit
+        } else {
+            Ok(length as usize)
+        }
     }
 }
 
