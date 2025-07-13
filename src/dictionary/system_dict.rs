@@ -172,7 +172,10 @@ impl SystemDictionary {
     ///
     /// # Returns
     /// Option containing slice of unknown entries for this category
-    pub fn get_unknown_entries(&self, category: &str) -> Option<&[crate::dictionary::UnknownEntry]> {
+    pub fn get_unknown_entries(
+        &self,
+        category: &str,
+    ) -> Option<&[crate::dictionary::UnknownEntry]> {
         self.ram_dict.get_resource().get_unknown_entries(category)
     }
 
@@ -191,13 +194,13 @@ impl SystemDictionary {
     pub fn get_char_categories_result(&self, c: char) -> Result<Vec<String>, RunomeError> {
         let categories = self.get_char_categories(c);
         let mut result = Vec::new();
-        
+
         // Add primary categories and their compatible categories
         for (category, compat_categories) in categories {
             result.push(category);
             result.extend(compat_categories);
         }
-        
+
         Ok(result)
     }
 
@@ -213,7 +216,10 @@ impl SystemDictionary {
     /// # Returns
     /// * `Ok(Vec<&UnknownEntry>)` - Vector of unknown word entries for this category
     /// * `Err(RunomeError)` - Error if category is not found
-    pub fn get_unknown_entries_result(&self, category: &str) -> Result<Vec<&UnknownEntry>, RunomeError> {
+    pub fn get_unknown_entries_result(
+        &self,
+        category: &str,
+    ) -> Result<Vec<&UnknownEntry>, RunomeError> {
         match self.get_unknown_entries(category) {
             Some(entries) => Ok(entries.iter().collect()),
             None => Err(RunomeError::DictValidationError {

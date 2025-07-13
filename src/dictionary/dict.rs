@@ -1,6 +1,6 @@
 use fst::Map;
 
-use super::{DictionaryResource, loader, types::{DictEntry, CharCategory, UnknownEntry}};
+use super::{DictionaryResource, loader, types::DictEntry};
 use crate::error::RunomeError;
 
 /// Dictionary trait providing core morpheme lookup functionality

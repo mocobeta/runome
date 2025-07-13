@@ -262,54 +262,71 @@ impl Tokenizer {
 
         // Process only the chunk we determined
         let chunk_text = &text[..chunk_end];
-        
-        // Create lattice for this chunk  
+
+        // Create lattice for this chunk
         // Add +1 to lattice size to account for EOS position
         let lattice_size = chunk_text.chars().count() + 1;
-        eprintln!("DEBUG: Creating lattice with size {} for text '{}' (char count: {})", 
-                 lattice_size, chunk_text, chunk_text.chars().count());
-        let mut lattice = Lattice::new(lattice_size, self.sys_dic.clone() as Arc<dyn crate::dictionary::Dictionary>);
-        
+        let mut lattice = Lattice::new(
+            lattice_size,
+            self.sys_dic.clone() as Arc<dyn crate::dictionary::Dictionary>,
+        );
+
         // Add dictionary entries to lattice
         self.add_dictionary_entries(&mut lattice, chunk_text, baseform_unk)?;
-        
+
         // Process the lattice using Viterbi algorithm
-        lattice.forward();
+        // Note: we don't call lattice.forward() here because we've already advanced incrementally
         lattice.end()?;
         let path = lattice.backward()?;
-        
+
         // Convert path to tokens (excluding BOS and EOS)
-        let tokens = self.path_to_tokens(&path[1..path.len()-1], wakati, baseform_unk)?;
-        
+        let tokens = self.path_to_tokens(&path[1..path.len() - 1], wakati, baseform_unk)?;
+
         Ok((tokens, chunk_end))
     }
 
-    /// Add dictionary entries to the lattice for all positions in the text
-    fn add_dictionary_entries<'a>(&self, lattice: &mut Lattice<'a>, text: &str, baseform_unk: bool) -> Result<(), RunomeError> {
-        let chars: Vec<char> = text.chars().collect();
+    /// Add dictionary entries to the lattice following Python's incremental approach
+    /// This matches Python Janome's tokenize() method exactly
+    fn add_dictionary_entries<'a>(
+        &self,
+        lattice: &mut Lattice<'a>,
+        text: &str,
+        baseform_unk: bool,
+    ) -> Result<(), RunomeError> {
+        let text_bytes = text.as_bytes();
+        let text_len = text.len();
         let mut pos = 0;
 
-        eprintln!("DEBUG: Adding entries for text '{}' with {} characters", text, chars.len());
+        // Python-style incremental processing: while pos < len(s):
+        while pos < text_len {
+            let current_pos = lattice.position();
 
-        while pos < chars.len() {
-            let mut found_dict_entry = false;
-            let c = chars[pos];
-            
-            eprintln!("DEBUG: Processing position {} character '{}'", pos, c);
-            
-            // Try to find dictionary entries starting at this position
-            for len in 1..=std::cmp::min(chars.len() - pos, 50) { // Max word length limit
-                let end_pos = pos + len;
-                let substring: String = chars[pos..end_pos].iter().collect();
-                
+            // Extract current character for unknown word processing
+            let current_char = text[pos..].chars().next().unwrap();
+            let mut matched = false;
+
+            // 1. DICTIONARY LOOKUP - try all possible substrings starting at current position
+            // We need to work with character-based lengths, not byte-based
+            let remaining_text = &text[pos..];
+            let char_indices: Vec<_> = remaining_text.char_indices().collect();
+
+            for char_len in 1..=std::cmp::min(char_indices.len(), 50) {
+                // Max word length limit
+                // Get substring by character count, not byte count
+                let end_byte = if char_len < char_indices.len() {
+                    char_indices[char_len].0
+                } else {
+                    remaining_text.len()
+                };
+                let substring = &remaining_text[..end_byte];
+
                 // Look up dictionary entries for this substring
-                match self.sys_dic.lookup(&substring) {
+                match self.sys_dic.lookup(substring) {
                     Ok(entries) if !entries.is_empty() => {
-                        found_dict_entry = true;
-                        eprintln!("DEBUG: Found {} dictionary entries for substring '{}'", entries.len(), substring);
+                        matched = true;
                         for entry in entries {
-                            // Create a node for this dictionary entry
-                            let node = Box::new(crate::lattice::UnknownNode::new(
+                            // Create dictionary node - use actual DictEntry data
+                            let dict_node = Box::new(crate::lattice::UnknownNode::new(
                                 entry.surface.clone(),
                                 entry.left_id,
                                 entry.right_id,
@@ -317,142 +334,258 @@ impl Tokenizer {
                                 entry.part_of_speech.clone(),
                                 entry.base_form.clone(),
                             ));
-                            lattice.add(node)?;
-                            eprintln!("DEBUG: Added dictionary node for '{}'", entry.surface);
+                            lattice.add(dict_node)?;
                         }
                     }
                     _ => {
-                        // No dictionary entries found for this substring, continue
+                        // No entries found for this substring
                     }
                 }
             }
 
-            // Add unknown word processing based on character categories
-            // This follows Python Janome logic: unknown processing happens either when
-            // no dictionary entries found OR when category has invoke_always=true
-            let char_categories = self.sys_dic.get_char_categories_result(c)?;
-            let mut chars_consumed = 1; // Default: consume 1 character
-            
+            // 2. UNKNOWN WORD PROCESSING - Python logic
+            let char_categories = self.sys_dic.get_char_categories_result(current_char)?;
+
             for category in &char_categories {
-                let should_invoke = !found_dict_entry || 
-                    self.sys_dic.unknown_invoked_always_result(category).unwrap_or(false);
-                
-                eprintln!("DEBUG: Category '{}' for '{}': found_dict={}, should_invoke={}", 
-                         category, c, found_dict_entry, should_invoke);
-                
+                // Python: if matched and not self.sys_dic.unknown_invoked_always(cate): continue
+                let should_invoke = !matched
+                    || self
+                        .sys_dic
+                        .unknown_invoked_always_result(category)
+                        .unwrap_or(false);
+
                 if should_invoke {
-                    // Get unknown word entries for this category  
+                    // Get unknown word entries for this category
                     let unknown_entries = match self.sys_dic.get_unknown_entries_result(category) {
                         Ok(entries) => entries,
                         Err(_) => continue,
                     };
-                    
-                    // Create unknown word based on grouping rules
-                    let (surface, consumed) = if self.sys_dic.unknown_grouping_result(category)? {
-                        let grouped_surface = self.build_grouped_surface(&chars, pos, category)?;
-                        let consumed_chars = grouped_surface.chars().count();
-                        eprintln!("DEBUG: Built grouped surface '{}' for category '{}', consumed {} chars", 
-                                 grouped_surface, category, consumed_chars);
-                        (grouped_surface, consumed_chars)
-                    } else {
-                        (c.to_string(), 1)
-                    };
-                    
-                    // Update chars_consumed to the maximum consumed by any category
-                    chars_consumed = std::cmp::max(chars_consumed, consumed);
-                    
+
+                    // Build unknown word following Python's exact logic
+                    let grouped_surface =
+                        self.build_grouped_surface_python_style(text, pos, category)?;
+
+                    // Create unknown word nodes
                     for entry in unknown_entries {
                         let base_form = if baseform_unk {
-                            surface.clone()
+                            grouped_surface.clone()
                         } else {
                             "*".to_string()
                         };
-                        
+
                         let unknown_node = Box::new(crate::lattice::UnknownNode::new(
-                            surface.clone(),
+                            grouped_surface.clone(),
                             entry.left_id,
                             entry.right_id,
                             entry.cost,
                             entry.part_of_speech.clone(),
                             base_form,
                         ));
-                        
+
                         lattice.add(unknown_node)?;
-                        eprintln!("DEBUG: Added unknown node '{}' with cost {} at position {}", 
-                                 surface, entry.cost, pos);
                     }
                 }
             }
-            
-            // Skip the positions consumed by grouped words
-            eprintln!("DEBUG: Advancing position from {} by {} characters", pos, chars_consumed);
-            pos += chars_consumed;
+
+            // 3. CRITICAL: Python-style position advancement
+            // Python: pos += lattice.forward()
+            let advancement = lattice.forward();
+
+            // Convert lattice position advancement to byte position in text
+            // This is the key insight - we need to track byte positions in text
+            // while letting the lattice control the advancement
+            if advancement > 0 {
+                // Find the byte position corresponding to the lattice advancement
+                let mut char_count = 0;
+                let mut byte_pos = pos;
+                for (i, _) in text[pos..].char_indices() {
+                    if char_count >= advancement {
+                        break;
+                    }
+                    byte_pos = pos + i;
+                    char_count += 1;
+                }
+                // Move to position after the last character
+                if char_count < advancement {
+                    pos = text_len; // End of string
+                } else {
+                    // Find start of next character
+                    byte_pos = text[pos..]
+                        .char_indices()
+                        .nth(advancement)
+                        .map(|(i, _)| pos + i)
+                        .unwrap_or(text_len);
+                    pos = byte_pos;
+                }
+            } else {
+                // If no advancement, move by one character to avoid infinite loop
+                pos = text[pos..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(i, _)| pos + i)
+                    .unwrap_or(text_len);
+            }
         }
 
         Ok(())
     }
 
+    /// Build grouped surface form following Python Janome's exact logic
+    /// This version works with string byte positions like Python
+    fn build_grouped_surface_python_style(
+        &self,
+        text: &str,
+        start_pos: usize,
+        category: &str,
+    ) -> Result<String, RunomeError> {
+        let category_max_length = self.sys_dic.unknown_length_result(category)?;
+        let length = if self.sys_dic.unknown_grouping_result(category)? {
+            self.max_unknown_length
+        } else {
+            category_max_length
+        };
 
-    /// Build grouped surface form for unknown words of the same category
-    fn build_grouped_surface(&self, chars: &[char], start_pos: usize, category: &str) -> Result<String, RunomeError> {
+        let mut buf = String::new();
+        let mut char_indices: Vec<_> = text[start_pos..].char_indices().collect();
+
+        // Add the starting character
+        if let Some((_, first_char)) = char_indices.first() {
+            buf.push(*first_char);
+        }
+
+        // Group consecutive characters following Python's logic
+        for (byte_offset, c) in char_indices.iter().skip(1) {
+            if buf.chars().count() >= length {
+                break;
+            }
+
+            let abs_pos = start_pos + byte_offset;
+            if abs_pos >= text.len() {
+                break;
+            }
+
+            // Get character categories for this character
+            let c_categories = self.sys_dic.get_char_categories_result(*c)?;
+
+            // Python logic: if cate in _cates or any(cate in _compat_cates for _compat_cates in _cates.values())
+            let same_category = c_categories.contains(&category.to_string());
+            let compatible = self.is_compatible_category_python_style(category, &c_categories);
+
+            if same_category || compatible {
+                buf.push(*c);
+            } else {
+                break;
+            }
+        }
+
+        Ok(buf)
+    }
+
+    /// Legacy method for compatibility - will be removed
+    fn build_grouped_surface(
+        &self,
+        chars: &[char],
+        start_pos: usize,
+        category: &str,
+    ) -> Result<String, RunomeError> {
         let mut surface = String::new();
-        let max_length = self.sys_dic.unknown_length_result(category)?;
+        let category_max_length = self.sys_dic.unknown_length_result(category)?;
+        // Apply both category-specific limit and tokenizer's global limit
+        let max_length = std::cmp::min(category_max_length, self.max_unknown_length);
         let mut pos = start_pos;
-        
-        eprintln!("DEBUG: build_grouped_surface start_pos={} category='{}' max_length={}", 
-                 start_pos, category, max_length);
-        
+
         // Add the starting character
         surface.push(chars[pos]);
         pos += 1;
-        eprintln!("DEBUG: Added starting char '{}', surface now='{}'", chars[start_pos], surface);
-        
+
         // Group consecutive characters of compatible categories
         while pos < chars.len() && surface.chars().count() < max_length {
             let c = chars[pos];
             let c_categories = self.sys_dic.get_char_categories_result(c)?;
-            
-            eprintln!("DEBUG: Checking char '{}' at pos {} with categories {:?}", c, pos, c_categories);
-            
+
             // Check if this character belongs to the same category or compatible category
             let same_category = c_categories.contains(&category.to_string());
             let compatible = self.is_compatible_category(category, &c_categories);
-            
-            eprintln!("DEBUG: same_category={}, compatible={}", same_category, compatible);
-            
+
             if same_category || compatible {
                 surface.push(c);
                 pos += 1;
-                eprintln!("DEBUG: Added char '{}', surface now='{}'", c, surface);
             } else {
-                eprintln!("DEBUG: Breaking - char '{}' not compatible", c);
                 break;
             }
         }
-        
-        eprintln!("DEBUG: Final grouped surface: '{}'", surface);
+
         Ok(surface)
     }
 
-    /// Check if categories are compatible for grouping
+    /// Python-style category compatibility checking
+    /// Implements: any(cate in _compat_cates for _compat_cates in _cates.values())
+    fn is_compatible_category_python_style(
+        &self,
+        base_category: &str,
+        char_categories: &[String],
+    ) -> bool {
+        // For now, use simplified compatibility rules
+        // TODO: Implement full compatible categories lookup from char definitions
+        match base_category {
+            "NUMERIC" => char_categories
+                .iter()
+                .any(|cat| cat == "NUMERIC" || cat == "DEFAULT"),
+            "ALPHA" => char_categories
+                .iter()
+                .any(|cat| cat == "ALPHA" || cat == "DEFAULT"),
+            "KATAKANA" => char_categories
+                .iter()
+                .any(|cat| cat == "KATAKANA" || cat == "DEFAULT"),
+            "HIRAGANA" => char_categories
+                .iter()
+                .any(|cat| cat == "HIRAGANA" || cat == "DEFAULT"),
+            "KANJI" => char_categories
+                .iter()
+                .any(|cat| cat == "KANJI" || cat == "DEFAULT"),
+            "SYMBOL" => char_categories
+                .iter()
+                .any(|cat| cat == "SYMBOL" || cat == "DEFAULT"),
+            _ => false,
+        }
+    }
+
+    /// Legacy compatibility method
     fn is_compatible_category(&self, base_category: &str, char_categories: &[String]) -> bool {
         // Implement compatibility rules based on Python Janome logic
         // For now, implement basic compatibility for common cases
         match base_category {
-            "NUMERIC" => char_categories.iter().any(|cat| cat == "NUMERIC" || cat == "DEFAULT"),
-            "ALPHA" => char_categories.iter().any(|cat| cat == "ALPHA" || cat == "DEFAULT"),
-            "KATAKANA" => char_categories.iter().any(|cat| cat == "KATAKANA" || cat == "DEFAULT"),
-            "HIRAGANA" => char_categories.iter().any(|cat| cat == "HIRAGANA" || cat == "DEFAULT"),
-            "KANJI" => char_categories.iter().any(|cat| cat == "KANJI" || cat == "DEFAULT"),
-            "SYMBOL" => char_categories.iter().any(|cat| cat == "SYMBOL" || cat == "DEFAULT"),
+            "NUMERIC" => char_categories
+                .iter()
+                .any(|cat| cat == "NUMERIC" || cat == "DEFAULT"),
+            "ALPHA" => char_categories
+                .iter()
+                .any(|cat| cat == "ALPHA" || cat == "DEFAULT"),
+            "KATAKANA" => char_categories
+                .iter()
+                .any(|cat| cat == "KATAKANA" || cat == "DEFAULT"),
+            "HIRAGANA" => char_categories
+                .iter()
+                .any(|cat| cat == "HIRAGANA" || cat == "DEFAULT"),
+            "KANJI" => char_categories
+                .iter()
+                .any(|cat| cat == "KANJI" || cat == "DEFAULT"),
+            "SYMBOL" => char_categories
+                .iter()
+                .any(|cat| cat == "SYMBOL" || cat == "DEFAULT"),
             _ => false,
         }
     }
 
     /// Convert a path of lattice nodes to tokens
-    fn path_to_tokens(&self, path: &[&dyn LatticeNode], wakati: bool, baseform_unk: bool) -> Result<Vec<TokenizeResult>, RunomeError> {
+    fn path_to_tokens(
+        &self,
+        path: &[&dyn LatticeNode],
+        wakati: bool,
+        baseform_unk: bool,
+    ) -> Result<Vec<TokenizeResult>, RunomeError> {
         let mut tokens = Vec::new();
-        
+
         for node in path {
             if wakati {
                 // Wakati mode: return only surface forms
@@ -467,7 +600,7 @@ impl Tokenizer {
                 tokens.push(TokenizeResult::Token(token));
             }
         }
-        
+
         Ok(tokens)
     }
 
@@ -686,20 +819,27 @@ mod tests {
 
         // Test different character types
         let test_cases = vec![
-            ('あ', "hiragana"),           // Hiragana
-            ('ア', "katakana"),           // Katakana  
-            ('漢', "kanji"),              // Kanji
-            ('2', "numeric"),             // Number
-            ('A', "alpha"),               // Alphabet
-            ('、', "symbol"),             // Symbol
+            ('あ', "hiragana"), // Hiragana
+            ('ア', "katakana"), // Katakana
+            ('漢', "kanji"),    // Kanji
+            ('2', "numeric"),   // Number
+            ('A', "alpha"),     // Alphabet
+            ('、', "symbol"),   // Symbol
         ];
 
         for (ch, expected_type) in test_cases {
             let categories = tokenizer.sys_dic.get_char_categories_result(ch);
             match categories {
                 Ok(cats) => {
-                    assert!(!cats.is_empty(), "Character '{}' should have at least one category", ch);
-                    eprintln!("Character '{}' has categories: {:?} (expected type: {})", ch, cats, expected_type);
+                    assert!(
+                        !cats.is_empty(),
+                        "Character '{}' should have at least one category",
+                        ch
+                    );
+                    eprintln!(
+                        "Character '{}' has categories: {:?} (expected type: {})",
+                        ch, cats, expected_type
+                    );
                 }
                 Err(e) => {
                     eprintln!("Warning: Could not get categories for '{}': {:?}", ch, e);
@@ -717,103 +857,128 @@ mod tests {
         }
         let tokenizer = tokenizer.unwrap();
 
-        // Test mixed numbers and kanji
-        let text = "2009年";
-        eprintln!("Debugging tokenization of '{}'", text);
-        
-        let chars: Vec<char> = text.chars().collect();
-        for (i, ch) in chars.iter().enumerate() {
-            eprintln!("Character {} ('{}'): ", i, ch);
-            
-            // Check character categories
-            match tokenizer.sys_dic.get_char_categories_result(*ch) {
-                Ok(categories) => {
-                    eprintln!("  Categories: {:?}", categories);
-                    
-                    // Check unknown entries for each category
-                    for category in &categories {
-                        match tokenizer.sys_dic.get_unknown_entries_result(category) {
-                            Ok(entries) => {
-                                eprintln!("  Category '{}' has {} unknown entries", category, entries.len());
+        // Test cases for unknown word grouping
+        let test_cases = vec![
+            // (input, expected_tokens)
+            (
+                "2009年",
+                vec![("2009", "名詞,数"), ("年", "名詞,接尾,助数詞")],
+            ),
+            ("2009", vec![("2009", "名詞,数")]),
+            ("ABC", vec![("ABC", "名詞,固有名詞,組織")]), // Should group alphabetic characters
+            ("123", vec![("123", "名詞,数")]),            // Should group numeric characters
+        ];
+
+        for (text, expected) in test_cases {
+            let results: Result<Vec<_>, _> = tokenizer.tokenize(text, None, None).collect();
+
+            match results {
+                Ok(tokens) => {
+                    assert_eq!(
+                        tokens.len(),
+                        expected.len(),
+                        "Expected {} tokens for '{}', but got {}. Expected: {:?}",
+                        expected.len(),
+                        text,
+                        tokens.len(),
+                        expected
+                    );
+
+                    // Validate each token matches expected surface and part-of-speech
+                    for (i, (expected_surface, expected_pos_prefix)) in expected.iter().enumerate()
+                    {
+                        match &tokens[i] {
+                            TokenizeResult::Token(token) => {
+                                // Check surface form
+                                assert_eq!(
+                                    token.surface(),
+                                    *expected_surface,
+                                    "Token {} surface mismatch for '{}': expected '{}', got '{}'",
+                                    i,
+                                    text,
+                                    expected_surface,
+                                    token.surface()
+                                );
+
+                                // Check part-of-speech starts with expected prefix
+                                assert!(
+                                    token.part_of_speech().starts_with(expected_pos_prefix),
+                                    "Token {} part-of-speech mismatch for '{}': expected to start with '{}', got '{}'",
+                                    i,
+                                    text,
+                                    expected_pos_prefix,
+                                    token.part_of_speech()
+                                );
                             }
-                            Err(_) => {
-                                eprintln!("  Category '{}' has no unknown entries", category);
-                            }
-                        }
-                        
-                        // Check grouping property
-                        match tokenizer.sys_dic.unknown_grouping_result(category) {
-                            Ok(grouping) => {
-                                eprintln!("  Category '{}' grouping: {}", category, grouping);
-                            }
-                            Err(_) => {
-                                eprintln!("  Category '{}' grouping: unknown", category);
-                            }
-                        }
-                        
-                        // Check invoke_always property
-                        match tokenizer.sys_dic.unknown_invoked_always_result(category) {
-                            Ok(invoke_always) => {
-                                eprintln!("  Category '{}' invoke_always: {}", category, invoke_always);
-                            }
-                            Err(_) => {
-                                eprintln!("  Category '{}' invoke_always: unknown", category);
+                            TokenizeResult::Surface(surface) => {
+                                panic!(
+                                    "Expected Token but got Surface '{}' for test case '{}'",
+                                    surface, text
+                                );
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("  Error getting categories: {:?}", e);
+                    panic!("Tokenization failed for '{}': {:?}", text, e);
                 }
             }
-            
-            // Check if this character has dictionary entries
-            let single_char = ch.to_string();
-            match tokenizer.sys_dic.lookup(&single_char) {
-                Ok(entries) => {
-                    eprintln!("  Dictionary entries for '{}': {}", single_char, entries.len());
+        }
+    }
+
+    #[test]
+    fn test_unknown_word_grouping_edge_cases() {
+        let tokenizer = Tokenizer::new(None, None);
+        if tokenizer.is_err() {
+            eprintln!("Skipping test: SystemDictionary not available");
+            return;
+        }
+        let tokenizer = tokenizer.unwrap();
+
+        // Edge cases that should fail if grouping is broken
+        let edge_cases = vec![
+            // Mixed character types - should NOT group across categories
+            ("123abc", 2), // Should be "123" + "abc", not "123abc"
+            ("ABC123", 2), // Should be "ABC" + "123", not "ABC123"
+            // Single characters - should still work
+            ("2", 1), // Single digit
+            ("A", 1), // Single letter
+        ];
+
+        for (text, expected_count) in edge_cases {
+            eprintln!("\n=== Edge case: '{}' ===", text);
+
+            let results: Result<Vec<_>, _> = tokenizer.tokenize(text, None, None).collect();
+
+            match results {
+                Ok(tokens) => {
+                    eprintln!(
+                        "Tokenization of '{}' produced {} tokens:",
+                        text,
+                        tokens.len()
+                    );
+                    for (i, token) in tokens.iter().enumerate() {
+                        eprintln!("  Token {}: {}", i, token);
+                    }
+
+                    assert_eq!(
+                        tokens.len(),
+                        expected_count,
+                        "Edge case '{}' failed: expected {} tokens, got {}",
+                        text,
+                        expected_count,
+                        tokens.len()
+                    );
+
+                    eprintln!("✓ Edge case '{}' PASSED", text);
                 }
-                Err(_) => {
-                    eprintln!("  No dictionary entries for '{}'", single_char);
+                Err(e) => {
+                    panic!("Edge case tokenization failed for '{}': {:?}", text, e);
                 }
             }
         }
 
-        // Now test tokenization
-        let results: Result<Vec<_>, _> = tokenizer.tokenize(text, None, None).collect();
-        
-        match results {
-            Ok(tokens) => {
-                eprintln!("Tokenization of '{}' produced {} tokens:", text, tokens.len());
-                for (i, token) in tokens.iter().enumerate() {
-                    eprintln!("  Token {}: {}", i, token);
-                }
-                
-                // For now, just check that we get at least one token
-                assert!(tokens.len() >= 1, "Should have at least 1 token for '{}'", text);
-                
-                // Check for desired tokens
-                let has_2009 = tokens.iter().any(|t| match t {
-                    TokenizeResult::Token(token) => token.surface().contains("2009"),
-                    TokenizeResult::Surface(surface) => surface.contains("2009"),
-                });
-                let has_nen = tokens.iter().any(|t| match t {
-                    TokenizeResult::Token(token) => token.surface().contains("年"),
-                    TokenizeResult::Surface(surface) => surface.contains("年"),
-                });
-                
-                if !has_2009 && text.contains("2009") {
-                    eprintln!("WARNING: Expected to find '2009' token but didn't");
-                }
-                if !has_nen && text.contains("年") {
-                    eprintln!("WARNING: Expected to find '年' token but didn't");  
-                }
-            }
-            Err(e) => {
-                eprintln!("Tokenization failed for '{}': {:?}", text, e);
-                // Don't fail the test, just report the error
-            }
-        }
+        eprintln!("\n🎉 All edge case tests PASSED!");
     }
 
     #[test]
@@ -827,15 +992,15 @@ mod tests {
 
         // Test basic Japanese text that should match Python Janome output
         let test_cases = vec![
-            "すもも",           // Simple hiragana
-            "テスト",           // Simple katakana  
-            "2009",             // Numbers
-            "ABC",              // Alphabet
+            "すもも", // Simple hiragana
+            "テスト", // Simple katakana
+            "2009",   // Numbers
+            "ABC",    // Alphabet
         ];
 
         for text in test_cases {
             let results: Result<Vec<_>, _> = tokenizer.tokenize(text, None, None).collect();
-            
+
             match results {
                 Ok(tokens) => {
                     eprintln!("Text '{}' tokenized into {} tokens:", text, tokens.len());
