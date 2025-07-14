@@ -28,6 +28,16 @@ pub enum RunomeError {
     #[error("SystemDictionary initialization failed: {reason}")]
     SystemDictInitError { reason: String },
 
+    // User dictionary errors
+    #[error("User dictionary error: {reason}")]
+    UserDictError { reason: String },
+
+    #[error("CSV parsing error at line {line}: {reason}")]
+    CsvParseError { line: usize, reason: String },
+
+    #[error("FST building error: {reason}")]
+    FstBuildError { reason: String },
+
     // General IO errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

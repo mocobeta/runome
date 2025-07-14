@@ -1,4 +1,5 @@
 use fst::Map;
+use std::sync::Arc;
 
 use super::{DictionaryResource, loader, types::DictEntry};
 use crate::error::RunomeError;
@@ -188,6 +189,17 @@ impl RAMDictionary {
     /// Get reference to the embedded DictionaryResource
     pub fn get_resource(&self) -> &DictionaryResource {
         &self.resource
+    }
+
+    /// Get connection matrix for user dictionary use
+    ///
+    /// Returns a reference to the connection matrix used by this dictionary.
+    /// This is needed for UserDictionary initialization.
+    ///
+    /// # Returns
+    /// * `Arc<Vec<Vec<i16>>>` - Shared reference to connection matrix
+    pub fn get_connection_matrix(&self) -> Arc<Vec<Vec<i16>>> {
+        self.resource.get_connection_matrix()
     }
 }
 

@@ -497,4 +497,426 @@ pub mod segmentation_tests {
             NodeType::SysDict,
         );
     }
+
+    #[test]
+    fn test_tokenize_patched_dic() {
+        // Equivalent to Python's TestTokenizer.test_tokenize_patched_dic()
+        // Tests tokenization of Japanese era name "令和元年" (Reiwa Era Year 1)
+        // This tests that the system dictionary includes the relatively new "令和" term
+        let tokenizer = Tokenizer::new(None, None);
+        if tokenizer.is_err() {
+            eprintln!("Skipping test: SystemDictionary not available");
+            return;
+        }
+        let tokenizer = tokenizer.unwrap();
+
+        let text = "令和元年";
+        let results: Result<Vec<_>, _> = tokenizer.tokenize(text, None, None).collect();
+
+        assert!(results.is_ok(), "Tokenization should succeed");
+        let tokens = results.unwrap();
+
+        // Should produce exactly 2 tokens
+        assert_eq!(tokens.len(), 2, "Expected 2 tokens for '{}'", text);
+
+        // Token 1: 令和 (Reiwa - Japanese era name)
+        check_token(
+            &tokens[0],
+            "令和",
+            "名詞,固有名詞,一般,*,*,*,令和,レイワ,レイワ",
+            NodeType::SysDict,
+        );
+
+        // Token 2: 元年 (Gannen - first year)
+        check_token(
+            &tokens[1],
+            "元年",
+            "名詞,一般,*,*,*,*,元年,ガンネン,ガンネン",
+            NodeType::SysDict,
+        );
+    }
+
+    #[test]
+    fn test_tokenize_wakati() {
+        // Equivalent to Python's TestTokenizer.test_tokenize_wakati()
+        // Tests tokenization in wakati mode (分かち書き) which returns only surface forms
+        // without morphological analysis information
+        let tokenizer = Tokenizer::new(None, None);
+        if tokenizer.is_err() {
+            eprintln!("Skipping test: SystemDictionary not available");
+            return;
+        }
+        let tokenizer = tokenizer.unwrap();
+
+        let text = "すもももももももものうち";
+        let results: Result<Vec<_>, _> = tokenizer.tokenize(text, Some(true), None).collect();
+
+        assert!(results.is_ok(), "Tokenization should succeed");
+        let tokens = results.unwrap();
+
+        // Should produce exactly 7 tokens
+        assert_eq!(tokens.len(), 7, "Expected 7 tokens for '{}'", text);
+
+        // In wakati mode, we should get Surface results instead of Token results
+        let surfaces: Vec<&str> = tokens
+            .iter()
+            .map(|token| match token {
+                TokenizeResult::Surface(surface) => surface.as_str(),
+                TokenizeResult::Token(_) => panic!("Expected Surface but got Token in wakati mode"),
+            })
+            .collect();
+
+        // Validate each surface form matches expected sequence
+        assert_eq!(surfaces[0], "すもも");
+        assert_eq!(surfaces[1], "も");
+        assert_eq!(surfaces[2], "もも");
+        assert_eq!(surfaces[3], "も");
+        assert_eq!(surfaces[4], "もも");
+        assert_eq!(surfaces[5], "の");
+        assert_eq!(surfaces[6], "うち");
+    }
+
+    #[test]
+    fn test_tokenize_with_userdic() {
+        // Equivalent to Python's TestTokenizer.test_tokenize_with_userdic()
+        // Tests tokenization with user dictionary using IPADIC format
+        use crate::dictionary::{UserDictFormat, UserDictionary};
+        use std::io::Write;
+        use std::sync::Arc;
+        use tempfile::NamedTempFile;
+
+        let tokenizer = Tokenizer::new(None, None);
+        if tokenizer.is_err() {
+            eprintln!("Skipping test: SystemDictionary not available");
+            return;
+        }
+
+        // Create user dictionary CSV content (IPADIC format)
+        let csv_content = "\
+東京スカイツリー,1288,1288,4569,名詞,固有名詞,一般,*,*,*,東京スカイツリー,トウキョウスカイツリー,トウキョウスカイツリー
+東武スカイツリーライン,1288,1288,4700,名詞,固有名詞,一般,*,*,*,東武スカイツリーライン,トウブスカイツリーライン,トウブスカイツリーライン
+とうきょうスカイツリー駅,1288,1288,4143,名詞,固有名詞,一般,*,*,*,とうきょうスカイツリー駅,トウキョウスカイツリーエキ,トウキョウスカイツリーエキ";
+
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(csv_content.as_bytes())
+            .expect("Failed to write to temp file");
+
+        // Create system dictionary and user dictionary
+        let sys_dict = crate::dictionary::SystemDictionary::instance().unwrap();
+        let user_dict = UserDictionary::new(
+            temp_file.path(),
+            UserDictFormat::Ipadic,
+            sys_dict.get_connection_matrix(),
+        )
+        .unwrap();
+
+        // Create tokenizer with user dictionary
+        let tokenizer = Tokenizer::with_user_dict(Arc::new(user_dict), None, None).unwrap();
+
+        let text = "東京スカイツリーへのお越しは、東武スカイツリーライン「とうきょうスカイツリー駅」が便利です。";
+        let results: Result<Vec<_>, _> = tokenizer.tokenize(text, None, None).collect();
+
+        assert!(results.is_ok(), "Tokenization should succeed");
+        let tokens = results.unwrap();
+
+        // Should produce exactly 14 tokens (same as Python)
+        assert_eq!(tokens.len(), 14, "Expected 14 tokens for '{}'", text);
+
+        // Validate key tokens from user dictionary
+        check_token(
+            &tokens[0],
+            "東京スカイツリー",
+            "名詞,固有名詞,一般,*,*,*,東京スカイツリー,トウキョウスカイツリー,トウキョウスカイツリー",
+            NodeType::UserDict,
+        );
+        check_token(
+            &tokens[1],
+            "へ",
+            "助詞,格助詞,一般,*,*,*,へ,ヘ,エ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[2],
+            "の",
+            "助詞,連体化,*,*,*,*,の,ノ,ノ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[3],
+            "お越し",
+            "名詞,一般,*,*,*,*,お越し,オコシ,オコシ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[4],
+            "は",
+            "助詞,係助詞,*,*,*,*,は,ハ,ワ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[5],
+            "、",
+            "記号,読点,*,*,*,*,、,、,、",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[6],
+            "東武スカイツリーライン",
+            "名詞,固有名詞,一般,*,*,*,東武スカイツリーライン,トウブスカイツリーライン,トウブスカイツリーライン",
+            NodeType::UserDict,
+        );
+        check_token(
+            &tokens[7],
+            "「",
+            "記号,括弧開,*,*,*,*,「,「,「",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[8],
+            "とうきょうスカイツリー駅",
+            "名詞,固有名詞,一般,*,*,*,とうきょうスカイツリー駅,トウキョウスカイツリーエキ,トウキョウスカイツリーエキ",
+            NodeType::UserDict,
+        );
+        check_token(
+            &tokens[9],
+            "」",
+            "記号,括弧閉,*,*,*,*,」,」,」",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[10],
+            "が",
+            "助詞,格助詞,一般,*,*,*,が,ガ,ガ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[11],
+            "便利",
+            "名詞,形容動詞語幹,*,*,*,*,便利,ベンリ,ベンリ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[12],
+            "です",
+            "助動詞,*,*,*,特殊・デス,基本形,です,デス,デス",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[13],
+            "。",
+            "記号,句点,*,*,*,*,。,。,。",
+            NodeType::SysDict,
+        );
+    }
+
+    #[test]
+    fn test_tokenize_with_simplified_userdic() {
+        // Equivalent to Python's TestTokenizer.test_tokenize_with_simplified_userdic()
+        // Tests tokenization with user dictionary using simplified format
+        use crate::dictionary::{UserDictFormat, UserDictionary};
+        use std::io::Write;
+        use std::sync::Arc;
+        use tempfile::NamedTempFile;
+
+        let tokenizer = Tokenizer::new(None, None);
+        if tokenizer.is_err() {
+            eprintln!("Skipping test: SystemDictionary not available");
+            return;
+        }
+
+        // Create user dictionary CSV content (simplified format)
+        let csv_content = "\
+東京スカイツリー,カスタム名詞,トウキョウスカイツリー
+東武スカイツリーライン,カスタム名詞,トウブスカイツリーライン
+とうきょうスカイツリー駅,カスタム名詞,トウキョウスカイツリーエキ";
+
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(csv_content.as_bytes())
+            .expect("Failed to write to temp file");
+
+        // Create system dictionary and user dictionary
+        let sys_dict = crate::dictionary::SystemDictionary::instance().unwrap();
+        let user_dict = UserDictionary::new(
+            temp_file.path(),
+            UserDictFormat::Simpledic,
+            sys_dict.get_connection_matrix(),
+        )
+        .unwrap();
+
+        // Create tokenizer with user dictionary
+        let tokenizer = Tokenizer::with_user_dict(Arc::new(user_dict), None, None).unwrap();
+
+        let text = "東京スカイツリーへのお越しは、東武スカイツリーライン「とうきょうスカイツリー駅」が便利です。";
+        let results: Result<Vec<_>, _> = tokenizer.tokenize(text, None, None).collect();
+
+        if let Err(ref e) = results {
+            eprintln!("Tokenization error: {:?}", e);
+        }
+        assert!(results.is_ok(), "Tokenization should succeed");
+        let tokens = results.unwrap();
+
+        // Should produce exactly 14 tokens (same as Python)
+        assert_eq!(tokens.len(), 14, "Expected 14 tokens for '{}'", text);
+
+        // Validate key tokens from user dictionary (simplified format)
+        check_token(
+            &tokens[0],
+            "東京スカイツリー",
+            "カスタム名詞,*,*,*,*,*,東京スカイツリー,トウキョウスカイツリー,トウキョウスカイツリー",
+            NodeType::UserDict,
+        );
+        check_token(
+            &tokens[1],
+            "へ",
+            "助詞,格助詞,一般,*,*,*,へ,ヘ,エ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[2],
+            "の",
+            "助詞,連体化,*,*,*,*,の,ノ,ノ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[3],
+            "お越し",
+            "名詞,一般,*,*,*,*,お越し,オコシ,オコシ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[4],
+            "は",
+            "助詞,係助詞,*,*,*,*,は,ハ,ワ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[5],
+            "、",
+            "記号,読点,*,*,*,*,、,、,、",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[6],
+            "東武スカイツリーライン",
+            "カスタム名詞,*,*,*,*,*,東武スカイツリーライン,トウブスカイツリーライン,トウブスカイツリーライン",
+            NodeType::UserDict,
+        );
+        check_token(
+            &tokens[7],
+            "「",
+            "記号,括弧開,*,*,*,*,「,「,「",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[8],
+            "とうきょうスカイツリー駅",
+            "カスタム名詞,*,*,*,*,*,とうきょうスカイツリー駅,トウキョウスカイツリーエキ,トウキョウスカイツリーエキ",
+            NodeType::UserDict,
+        );
+        check_token(
+            &tokens[9],
+            "」",
+            "記号,括弧閉,*,*,*,*,」,」,」",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[10],
+            "が",
+            "助詞,格助詞,一般,*,*,*,が,ガ,ガ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[11],
+            "便利",
+            "名詞,形容動詞語幹,*,*,*,*,便利,ベンリ,ベンリ",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[12],
+            "です",
+            "助動詞,*,*,*,特殊・デス,基本形,です,デス,デス",
+            NodeType::SysDict,
+        );
+        check_token(
+            &tokens[13],
+            "。",
+            "記号,句点,*,*,*,*,。,。,。",
+            NodeType::SysDict,
+        );
+    }
+
+    #[test]
+    fn test_tokenize_with_userdic_wakati() {
+        // Equivalent to Python's TestTokenizer.test_tokenize_with_userdic_wakati()
+        // Tests tokenization with user dictionary in wakati mode
+        use crate::dictionary::{UserDictFormat, UserDictionary};
+        use std::io::Write;
+        use std::sync::Arc;
+        use tempfile::NamedTempFile;
+
+        let tokenizer = Tokenizer::new(None, None);
+        if tokenizer.is_err() {
+            eprintln!("Skipping test: SystemDictionary not available");
+            return;
+        }
+
+        // Create user dictionary CSV content (IPADIC format)
+        let csv_content = "\
+東京スカイツリー,1288,1288,4569,名詞,固有名詞,一般,*,*,*,東京スカイツリー,トウキョウスカイツリー,トウキョウスカイツリー
+東武スカイツリーライン,1288,1288,4700,名詞,固有名詞,一般,*,*,*,東武スカイツリーライン,トウブスカイツリーライン,トウブスカイツリーライン
+とうきょうスカイツリー駅,1288,1288,4143,名詞,固有名詞,一般,*,*,*,とうきょうスカイツリー駅,トウキョウスカイツリーエキ,トウキョウスカイツリーエキ";
+
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        temp_file
+            .write_all(csv_content.as_bytes())
+            .expect("Failed to write to temp file");
+
+        // Create system dictionary and user dictionary
+        let sys_dict = crate::dictionary::SystemDictionary::instance().unwrap();
+        let user_dict = UserDictionary::new(
+            temp_file.path(),
+            UserDictFormat::Ipadic,
+            sys_dict.get_connection_matrix(),
+        )
+        .unwrap();
+
+        // Create tokenizer with user dictionary in wakati mode
+        let tokenizer = Tokenizer::with_user_dict(Arc::new(user_dict), None, Some(true)).unwrap();
+
+        let text = "東京スカイツリーへのお越しは、東武スカイツリーライン「とうきょうスカイツリー駅」が便利です。";
+        let results: Result<Vec<_>, _> = tokenizer.tokenize(text, Some(true), None).collect();
+
+        assert!(results.is_ok(), "Tokenization should succeed");
+        let tokens = results.unwrap();
+
+        // Should produce exactly 14 tokens (same as Python)
+        assert_eq!(tokens.len(), 14, "Expected 14 tokens for '{}'", text);
+
+        // In wakati mode, we should get Surface results instead of Token results
+        let surfaces: Vec<&str> = tokens
+            .iter()
+            .map(|token| match token {
+                TokenizeResult::Surface(surface) => surface.as_str(),
+                TokenizeResult::Token(_) => panic!("Expected Surface but got Token in wakati mode"),
+            })
+            .collect();
+
+        // Validate each surface form matches expected sequence
+        assert_eq!(surfaces[0], "東京スカイツリー");
+        assert_eq!(surfaces[1], "へ");
+        assert_eq!(surfaces[2], "の");
+        assert_eq!(surfaces[3], "お越し");
+        assert_eq!(surfaces[4], "は");
+        assert_eq!(surfaces[5], "、");
+        assert_eq!(surfaces[6], "東武スカイツリーライン");
+        assert_eq!(surfaces[7], "「");
+        assert_eq!(surfaces[8], "とうきょうスカイツリー駅");
+        assert_eq!(surfaces[9], "」");
+        assert_eq!(surfaces[10], "が");
+        assert_eq!(surfaces[11], "便利");
+        assert_eq!(surfaces[12], "です");
+        assert_eq!(surfaces[13], "。");
+    }
 }

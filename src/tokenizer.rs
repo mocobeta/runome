@@ -1,7 +1,7 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::dictionary::SystemDictionary;
+use crate::dictionary::{Dictionary, SystemDictionary, UserDictionary};
 use crate::error::RunomeError;
 use crate::lattice::{Lattice, LatticeNode, NodeType};
 
@@ -29,8 +29,8 @@ impl Token {
         Self {
             surface: node.surface().to_string(),
             part_of_speech: node.part_of_speech().to_string(),
-            infl_type: "*".to_string(), // TODO: Get from dictionary entry
-            infl_form: "*".to_string(), // TODO: Get from dictionary entry
+            infl_type: node.inflection_type().to_string(),
+            infl_form: node.inflection_form().to_string(),
             base_form: node.base_form().to_string(),
             reading: node.reading().to_string(),
             phonetic: node.phonetic().to_string(),
@@ -171,6 +171,7 @@ impl<'a> Iterator for TextChunkIterator<'a> {
 /// Mirrors the Python Janome Tokenizer class API
 pub struct Tokenizer {
     sys_dic: Arc<SystemDictionary>,
+    user_dic: Option<Arc<UserDictionary>>,
     max_unknown_length: usize,
     wakati: bool,
 }
@@ -193,6 +194,32 @@ impl Tokenizer {
 
         Ok(Self {
             sys_dic,
+            user_dic: None,
+            max_unknown_length: max_unknown_length.unwrap_or(1024),
+            wakati: wakati.unwrap_or(false),
+        })
+    }
+
+    /// Create a new Tokenizer instance with user dictionary
+    ///
+    /// # Arguments
+    /// * `user_dic` - User dictionary to use for custom entries
+    /// * `max_unknown_length` - Maximum length for unknown words (default: 1024)
+    /// * `wakati` - If true, only return surface forms (default: false)
+    ///
+    /// # Returns
+    /// * `Ok(Tokenizer)` - Successfully created tokenizer
+    /// * `Err(RunomeError)` - Error if dictionary initialization fails
+    pub fn with_user_dict(
+        user_dic: Arc<UserDictionary>,
+        max_unknown_length: Option<usize>,
+        wakati: Option<bool>,
+    ) -> Result<Self, RunomeError> {
+        let sys_dic = SystemDictionary::instance()?;
+
+        Ok(Self {
+            sys_dic,
+            user_dic: Some(user_dic),
             max_unknown_length: max_unknown_length.unwrap_or(1024),
             wakati: wakati.unwrap_or(false),
         })
@@ -321,17 +348,49 @@ impl Tokenizer {
                 let substring = &remaining_text[..end_byte];
 
                 // Look up dictionary entries for this substring
+                // 1. Check user dictionary first (higher priority)
+                if let Some(user_dic) = &self.user_dic {
+                    match user_dic.lookup(substring) {
+                        Ok(entries) if !entries.is_empty() => {
+                            matched = true;
+                            for entry in entries {
+                                // Create user dictionary node
+                                let user_node = Box::new(crate::lattice::UnknownNode::new(
+                                    entry.surface.clone(),
+                                    entry.left_id,
+                                    entry.right_id,
+                                    entry.cost,
+                                    entry.part_of_speech.clone(),
+                                    entry.inflection_type.clone(),
+                                    entry.inflection_form.clone(),
+                                    entry.base_form.clone(),
+                                    entry.reading.clone(),
+                                    entry.phonetic.clone(),
+                                    NodeType::UserDict,
+                                ));
+                                lattice.add(user_node)?;
+                            }
+                        }
+                        _ => {
+                            // No entries found in user dictionary
+                        }
+                    }
+                }
+
+                // 2. Check system dictionary (lower priority)
                 match self.sys_dic.lookup(substring) {
                     Ok(entries) if !entries.is_empty() => {
                         matched = true;
                         for entry in entries {
-                            // Create dictionary node - use actual DictEntry data
+                            // Create system dictionary node
                             let dict_node = Box::new(crate::lattice::UnknownNode::new(
                                 entry.surface.clone(),
                                 entry.left_id,
                                 entry.right_id,
                                 entry.cost,
                                 entry.part_of_speech.clone(),
+                                entry.inflection_type.clone(),
+                                entry.inflection_form.clone(),
                                 entry.base_form.clone(),
                                 entry.reading.clone(),
                                 entry.phonetic.clone(),
@@ -382,6 +441,8 @@ impl Tokenizer {
                             entry.right_id,
                             entry.cost,
                             entry.part_of_speech.clone(),
+                            "*".to_string(),
+                            "*".to_string(),
                             base_form,
                             "*".to_string(),
                             "*".to_string(),
@@ -586,6 +647,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -610,6 +673,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -635,6 +700,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),

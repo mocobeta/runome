@@ -66,6 +66,10 @@ pub trait LatticeNode: std::fmt::Debug {
 
     fn part_of_speech(&self) -> &str;
 
+    fn inflection_type(&self) -> &str;
+
+    fn inflection_form(&self) -> &str;
+
     fn base_form(&self) -> &str;
 
     fn reading(&self) -> &str;
@@ -181,6 +185,14 @@ impl<'a> LatticeNode for Node<'a> {
         &self.dict_entry.part_of_speech
     }
 
+    fn inflection_type(&self) -> &str {
+        &self.dict_entry.inflection_type
+    }
+
+    fn inflection_form(&self) -> &str {
+        &self.dict_entry.inflection_form
+    }
+
     fn base_form(&self) -> &str {
         &self.dict_entry.base_form
     }
@@ -203,6 +215,8 @@ pub struct UnknownNode {
     right_id: u16,
     cost: i16,
     part_of_speech: String,
+    inflection_type: String,
+    inflection_form: String,
     base_form: String,
     reading: String,
     phonetic: String,
@@ -225,6 +239,8 @@ impl UnknownNode {
         right_id: u16,
         cost: i16,
         part_of_speech: String,
+        inflection_type: String,
+        inflection_form: String,
         base_form: String,
         reading: String,
         phonetic: String,
@@ -236,6 +252,8 @@ impl UnknownNode {
             right_id,
             cost,
             part_of_speech,
+            inflection_type,
+            inflection_form,
             base_form,
             reading,
             phonetic,
@@ -320,6 +338,14 @@ impl LatticeNode for UnknownNode {
 
     fn part_of_speech(&self) -> &str {
         &self.part_of_speech
+    }
+
+    fn inflection_type(&self) -> &str {
+        &self.inflection_type
+    }
+
+    fn inflection_form(&self) -> &str {
+        &self.inflection_form
     }
 
     fn base_form(&self) -> &str {
@@ -438,6 +464,14 @@ impl LatticeNode for BOS {
         "__BOS__" // BOS doesn't have a part of speech
     }
 
+    fn inflection_type(&self) -> &str {
+        ""
+    }
+
+    fn inflection_form(&self) -> &str {
+        ""
+    }
+
     fn base_form(&self) -> &str {
         "__BOS__" // BOS doesn't have a base form
     }
@@ -546,6 +580,14 @@ impl LatticeNode for EOS {
 
     fn part_of_speech(&self) -> &str {
         "__EOS__" // EOS doesn't have a part of speech
+    }
+
+    fn inflection_type(&self) -> &str {
+        ""
+    }
+
+    fn inflection_form(&self) -> &str {
+        ""
     }
 
     fn base_form(&self) -> &str {
@@ -687,16 +729,36 @@ impl<'a> Lattice<'a> {
     /// * `Err(RunomeError)` if cost calculation or dictionary access fails
     pub fn add(&mut self, mut node: Box<dyn LatticeNode + 'a>) -> Result<(), RunomeError> {
         // Initialize Viterbi cost calculation
-        let mut min_cost = node.min_cost() - node.cost() as i32;
+        // Python: min_cost = node.min_cost - node.cost
+        // Handle overflow by clamping to i32::MAX
+        let mut min_cost = node.min_cost().saturating_sub(node.cost() as i32);
         let mut best_node: Option<&dyn LatticeNode> = None;
         let node_left_id = node.left_id();
 
         // Find the optimal predecessor from all end nodes at current position
         if let Some(end_nodes) = self.enodes.get(self.p) {
+            if end_nodes.is_empty() {
+                return Err(RunomeError::DictValidationError {
+                    reason: format!(
+                        "End nodes array at position {} is empty for node '{}'. Lattice position: {}, enodes.len(): {}",
+                        self.p,
+                        node.surface(),
+                        self.p,
+                        self.enodes.len()
+                    ),
+                });
+            }
             for enode in end_nodes {
                 // Calculate connection cost using dictionary
-                let connection_cost = self.dic.get_trans_cost(enode.right_id(), node_left_id)?;
-                let total_cost = enode.min_cost() + connection_cost as i32;
+                let connection_cost = match self.dic.get_trans_cost(enode.right_id(), node_left_id)
+                {
+                    Ok(cost) => cost,
+                    Err(e) => return Err(e),
+                };
+                let total_cost = enode
+                    .min_cost()
+                    .checked_add(connection_cost as i32)
+                    .unwrap_or(i32::MAX);
 
                 // Check if this is the best path so far
                 if total_cost < min_cost {
@@ -721,15 +783,25 @@ impl<'a> Lattice<'a> {
         }
 
         // Update node with optimal path information
-        node.set_min_cost(min_cost + node.cost() as i32);
+        // Use checked_add to prevent overflow with very negative costs
+        let final_cost = min_cost.checked_add(node.cost() as i32).unwrap_or(i32::MIN);
+        node.set_min_cost(final_cost);
 
         if let Some(best) = best_node {
             node.set_back_pos(best.pos() as i32);
             node.set_back_index(best.index() as i32);
         } else {
-            // If no predecessor found, use -1 (root node indicator)
-            node.set_back_pos(-1);
-            node.set_back_index(-1);
+            // This should not happen in a properly initialized lattice
+            // In Python, there's always at least one node in enodes[self.p]
+            return Err(RunomeError::DictValidationError {
+                reason: format!(
+                    "enodes.get({}) returned None for node '{}'. enodes.len(): {}, lattice position: {}",
+                    self.p,
+                    node.surface(),
+                    self.enodes.len(),
+                    self.p
+                ),
+            });
         }
 
         // Set node position and index
@@ -775,6 +847,8 @@ impl<'a> Lattice<'a> {
                 added_node.right_id(),
                 added_node.cost(),
                 added_node.part_of_speech().to_string(),
+                added_node.inflection_type().to_string(),
+                added_node.inflection_form().to_string(),
                 added_node.base_form().to_string(),
                 added_node.reading().to_string(),
                 added_node.phonetic().to_string(),
@@ -1015,6 +1089,8 @@ mod tests {
             400,
             500,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "未知語".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1253,6 +1329,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1297,6 +1375,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト1".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1309,6 +1389,8 @@ mod tests {
             201,
             200,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト2".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1352,6 +1434,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1386,6 +1470,8 @@ mod tests {
             400,
             500,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "未知語".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1428,6 +1514,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "とても長い表面形".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1479,6 +1567,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1496,6 +1586,8 @@ mod tests {
             201,
             100,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "語".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1655,6 +1747,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1706,6 +1800,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1749,6 +1845,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "短".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -1793,6 +1891,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -2039,6 +2139,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -2091,6 +2193,8 @@ mod tests {
             200,
             150,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "テスト".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -2116,6 +2220,8 @@ mod tests {
             200,
             150,
             "名詞,固有名詞,地域,国,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "日本".to_string(),
             "*".to_string(),
             "*".to_string(),
@@ -2131,6 +2237,8 @@ mod tests {
             300,
             100,
             "名詞,一般,*,*,*,*".to_string(),
+            "*".to_string(),
+            "*".to_string(),
             "語".to_string(),
             "*".to_string(),
             "*".to_string(),

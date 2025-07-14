@@ -1,5 +1,6 @@
 use crate::error::RunomeError;
 use std::path::Path;
+use std::sync::Arc;
 
 use super::{loader, types::*};
 
@@ -7,6 +8,7 @@ use super::{loader, types::*};
 pub struct DictionaryResource {
     entries: Vec<DictEntry>,
     connections: ConnectionMatrix,
+    connections_arc: Arc<Vec<Vec<i16>>>, // Shared reference for user dictionaries
     char_defs: CharDefinitions,
     unknowns: UnknownEntries,
     fst_bytes: Vec<u8>,
@@ -20,6 +22,7 @@ impl DictionaryResource {
 
         let entries = loader::load_entries(sysdic_dir)?;
         let connections = loader::load_connections(sysdic_dir)?;
+        let connections_arc = Arc::new(connections.clone()); // Share with user dictionaries
         let char_defs = loader::load_char_definitions(sysdic_dir)?;
         let unknowns = loader::load_unknown_entries(sysdic_dir)?;
         let fst_bytes = loader::load_fst_bytes(sysdic_dir)?;
@@ -28,6 +31,7 @@ impl DictionaryResource {
         Ok(Self {
             entries,
             connections,
+            connections_arc,
             char_defs,
             unknowns,
             fst_bytes,
@@ -141,6 +145,17 @@ impl DictionaryResource {
             .and_then(|row| row.get(right_id as usize))
             .copied()
             .ok_or(RunomeError::InvalidConnectionId { left_id, right_id })
+    }
+
+    /// Get connection matrix for user dictionary use
+    ///
+    /// Returns a reference to the connection matrix used by this dictionary.
+    /// This is needed for UserDictionary initialization.
+    ///
+    /// # Returns
+    /// * `Arc<Vec<Vec<i16>>>` - Shared reference to connection matrix
+    pub fn get_connection_matrix(&self) -> Arc<Vec<Vec<i16>>> {
+        Arc::clone(&self.connections_arc)
     }
 
     /// Get character category for a given character (returns first match)

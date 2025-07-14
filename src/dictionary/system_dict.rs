@@ -112,6 +112,17 @@ impl SystemDictionary {
         self.ram_dict.get_trans_cost(left_id, right_id)
     }
 
+    /// Get connection matrix for user dictionary use
+    ///
+    /// Returns a reference to the connection matrix used by this system dictionary.
+    /// This is needed for UserDictionary initialization.
+    ///
+    /// # Returns
+    /// * `Arc<Vec<Vec<i16>>>` - Shared reference to connection matrix
+    pub fn get_connection_matrix(&self) -> Arc<Vec<Vec<i16>>> {
+        self.ram_dict.get_connection_matrix()
+    }
+
     /// Get character categories for a given character
     ///
     /// Returns all character categories that match the given character,
