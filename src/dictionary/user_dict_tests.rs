@@ -767,10 +767,10 @@ mod dictionary_lookup_tests {
 
         // Check that we have the different part-of-speech entries
         let pos_set: std::collections::HashSet<_> =
-            results.iter().map(|r| &r.part_of_speech).collect();
-        assert!(pos_set.contains(&"名詞,固有名詞,地域,一般".to_string()));
-        assert!(pos_set.contains(&"名詞,固有名詞,人名,一般".to_string()));
-        assert!(pos_set.contains(&"名詞,固有名詞,組織,一般".to_string()));
+            results.iter().map(|r| r.part_of_speech.clone()).collect();
+        assert!(pos_set.contains("名詞,固有名詞,地域,一般"));
+        assert!(pos_set.contains("名詞,固有名詞,人名,一般"));
+        assert!(pos_set.contains("名詞,固有名詞,組織,一般"));
 
         // Check that we have different costs
         let costs: Vec<_> = results.iter().map(|r| r.cost).collect();

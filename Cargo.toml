@@ -3,7 +3,16 @@ name = "runome"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "runome"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["python"]
+python = ["pyo3"]
+
 [dependencies]
+pyo3 = { version = "0.23", features = ["abi3-py38", "extension-module"], optional = true }
 fst = "0.4.7"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }

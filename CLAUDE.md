@@ -52,6 +52,9 @@ The project aims to port janome library to Rust and provide the very same API to
 ## Testing Strategy
 - Rust: Standard `cargo test` with unit tests in `src/lib.rs`
 
+## Planning documentat
+When you are asked to create a design or implementation plan doc, save your plan to a Markdown file in /planning folder with appropriate file name.
+
 ## Development policy
 When you make changes, follow the instructions below.
 - Run cargo build --all-targets to check if the entire codebase is successfully compiled.

@@ -64,7 +64,7 @@ impl UserDictionary {
             })?;
 
         let mut entries = Vec::new();
-        for (_line_num, line) in content.lines().enumerate() {
+        for line in content.lines() {
             let line = line.trim();
             if line.is_empty() {
                 continue;

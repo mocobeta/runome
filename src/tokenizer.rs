@@ -240,10 +240,21 @@ impl Tokenizer {
         wakati: Option<bool>,
         baseform_unk: Option<bool>,
     ) -> impl Iterator<Item = Result<TokenizeResult, RunomeError>> + 'a {
-        let wakati_mode = wakati.unwrap_or(self.wakati);
+        // If tokenizer was initialized with wakati=True, always use wakati mode
+        // regardless of the parameter passed to tokenize()
+        let wakati_mode = if self.wakati {
+            true
+        } else {
+            wakati.unwrap_or(false)
+        };
         let baseform_unk_mode = baseform_unk.unwrap_or(true);
 
         self.tokenize_stream(text, wakati_mode, baseform_unk_mode)
+    }
+
+    /// Get the wakati mode setting for this tokenizer
+    pub fn wakati(&self) -> bool {
+        self.wakati
     }
 
     /// Create a streaming iterator for tokenization

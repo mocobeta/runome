@@ -577,6 +577,71 @@ pub mod segmentation_tests {
     }
 
     #[test]
+    fn test_tokenize_wakati_mode_only() {
+        // Skip test if sysdic directory doesn't exist
+        let sysdic_path = std::path::PathBuf::from("sysdic");
+        if !sysdic_path.exists() {
+            eprintln!(
+                "Skipping test: sysdic directory not found at {:?}",
+                sysdic_path
+            );
+            return;
+        }
+
+        let text = "すもももももももものうち";
+
+        // Create tokenizer with wakati=True
+        let tokenizer = Tokenizer::new(None, Some(true)).unwrap();
+
+        // Call tokenize with wakati=False - should be ignored and return surface strings
+        let results: Result<Vec<_>, _> = tokenizer.tokenize(text, Some(false), None).collect();
+        assert!(results.is_ok(), "Tokenization should succeed");
+
+        let tokens = results.unwrap();
+
+        // Should return 7 tokens
+        assert_eq!(tokens.len(), 7, "Should return 7 tokens");
+
+        // When tokenizer is initialized with wakati=True, wakati=False parameter should be ignored
+        // All tokens should be Surface variants (strings)
+        for (i, token) in tokens.iter().enumerate() {
+            match token {
+                TokenizeResult::Surface(_) => {
+                    // This is expected - wakati mode should return surface strings
+                }
+                TokenizeResult::Token(token) => {
+                    panic!(
+                        "Expected Surface but got Token '{}' at index {}",
+                        token.surface(),
+                        i
+                    );
+                }
+            }
+        }
+
+        // Check specific surface forms
+        let expected_surfaces = ["すもも", "も", "もも", "も", "もも", "の", "うち"];
+        for (i, (token, expected)) in tokens.iter().zip(expected_surfaces.iter()).enumerate() {
+            match token {
+                TokenizeResult::Surface(surface) => {
+                    assert_eq!(
+                        surface, expected,
+                        "Token {} surface mismatch: expected '{}', got '{}'",
+                        i, expected, surface
+                    );
+                }
+                TokenizeResult::Token(token) => {
+                    panic!(
+                        "Expected Surface but got Token '{}' at index {}",
+                        token.surface(),
+                        i
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_tokenize_with_userdic() {
         // Equivalent to Python's TestTokenizer.test_tokenize_with_userdic()
         // Tests tokenization with user dictionary using IPADIC format

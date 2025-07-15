@@ -750,11 +750,7 @@ impl<'a> Lattice<'a> {
             }
             for enode in end_nodes {
                 // Calculate connection cost using dictionary
-                let connection_cost = match self.dic.get_trans_cost(enode.right_id(), node_left_id)
-                {
-                    Ok(cost) => cost,
-                    Err(e) => return Err(e),
-                };
+                let connection_cost = self.dic.get_trans_cost(enode.right_id(), node_left_id)?;
                 let total_cost = enode
                     .min_cost()
                     .checked_add(connection_cost as i32)
