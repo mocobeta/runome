@@ -58,6 +58,31 @@ impl Token {
         }
     }
 
+    /// Create a Token with explicit field values
+    /// Used by TokenFilters to create modified tokens
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        surface: String,
+        part_of_speech: String,
+        infl_type: String,
+        infl_form: String,
+        base_form: String,
+        reading: String,
+        phonetic: String,
+        node_type: NodeType,
+    ) -> Self {
+        Self {
+            surface,
+            part_of_speech,
+            infl_type,
+            infl_form,
+            base_form,
+            reading,
+            phonetic,
+            node_type,
+        }
+    }
+
     // Accessor methods matching Python Token class
 
     pub fn surface(&self) -> &str {
