@@ -11,7 +11,25 @@ Basic usage:
     ...     print(token)
 """
 
-from .runome import Token, Tokenizer
+from .runome import (
+    Token, Tokenizer,
+    # CharFilter classes
+    CharFilter, RegexReplaceCharFilter, UnicodeNormalizeCharFilter,
+    # TokenFilter classes
+    TokenFilter, LowerCaseFilter, UpperCaseFilter, POSStopFilter, POSKeepFilter,
+    CompoundNounFilter, ExtractAttributeFilter, TokenCountFilter, TokenFilterIterator,
+    # Analyzer
+    Analyzer
+)
 
-__all__ = ['Token', 'Tokenizer']
+__all__ = [
+    'Token', 'Tokenizer',
+    # CharFilter classes
+    'CharFilter', 'RegexReplaceCharFilter', 'UnicodeNormalizeCharFilter',
+    # TokenFilter classes
+    'TokenFilter', 'LowerCaseFilter', 'UpperCaseFilter', 'POSStopFilter', 'POSKeepFilter',
+    'CompoundNounFilter', 'ExtractAttributeFilter', 'TokenCountFilter', 'TokenFilterIterator',
+    # Analyzer
+    'Analyzer'
+]
 __version__ = "0.1.0"

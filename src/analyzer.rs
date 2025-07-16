@@ -291,7 +291,7 @@ mod tests {
         assert!(!results.is_empty());
 
         // Should have at least one token
-        assert!(results.len() > 0);
+        assert!(!results.is_empty());
     }
 
     #[test]
@@ -375,7 +375,6 @@ mod tests {
         let results = analyzer.analyze("テスト").unwrap();
 
         assert!(!results.is_empty());
-        assert!(results.len() > 0);
     }
 
     #[test]

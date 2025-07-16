@@ -51,7 +51,7 @@ impl RegexReplaceCharFilter {
     ///
     /// # Arguments
     /// * `pattern` - Regular expression pattern string
-    /// * `replacement` - Replacement string
+    /// * `replacement` - Replacement string (supports \1, \2, etc. for backreferences)
     ///
     /// # Returns
     /// * `Ok(RegexReplaceCharFilter)` if pattern is valid
@@ -62,10 +62,20 @@ impl RegexReplaceCharFilter {
             source,
         })?;
 
+        // Convert Python-style backreferences (\1, \2, etc.) to Rust regex format ($1, $2, etc.)
+        let rust_replacement = Self::convert_backreferences(replacement);
+
         Ok(Self {
             pattern: regex,
-            replacement: replacement.to_string(),
+            replacement: rust_replacement,
         })
+    }
+
+    /// Convert Python-style backreferences (\1, \2, etc.) to Rust regex format ($1, $2, etc.)
+    fn convert_backreferences(replacement: &str) -> String {
+        // Use regex to replace \1, \2, etc. with $1, $2, etc.
+        let backref_regex = Regex::new(r"\\(\d+)").unwrap();
+        backref_regex.replace_all(replacement, "$$$1").to_string()
     }
 }
 

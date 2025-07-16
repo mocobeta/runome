@@ -194,6 +194,7 @@ impl<'a> Iterator for TextChunkIterator<'a> {
 
 /// Main Tokenizer struct providing Japanese morphological analysis
 /// Mirrors the Python Janome Tokenizer class API
+#[derive(Clone)]
 pub struct Tokenizer {
     sys_dic: Arc<SystemDictionary>,
     user_dic: Option<Arc<UserDictionary>>,
