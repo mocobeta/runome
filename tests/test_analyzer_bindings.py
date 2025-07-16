@@ -6,26 +6,26 @@ import pytest
 
 def test_charfilters():
     """Test CharFilter bindings"""
-    import runome
+    from runome.charfilter import UnicodeNormalizeCharFilter, RegexReplaceCharFilter
     
     # Test UnicodeNormalizeCharFilter
-    filter = runome.UnicodeNormalizeCharFilter()
+    filter = UnicodeNormalizeCharFilter()
     assert filter("Ｐｙｔｈｏｎ") == "Python"
     assert filter("㍻") == "平成"  # NFKC normalization
     
     # Test with different forms
-    filter_nfc = runome.UnicodeNormalizeCharFilter("NFC")
-    filter_nfd = runome.UnicodeNormalizeCharFilter("NFD")
+    filter_nfc = UnicodeNormalizeCharFilter("NFC")
+    filter_nfd = UnicodeNormalizeCharFilter("NFD")
     # NFC and NFD should handle combining characters differently
     text = "が"  # Hiragana GA (can be decomposed)
     assert len(filter_nfc(text)) <= len(filter_nfd(text))
     
     # Test RegexReplaceCharFilter
-    filter = runome.RegexReplaceCharFilter("蛇の目", "janome")
+    filter = RegexReplaceCharFilter("蛇の目", "janome")
     assert filter("蛇の目は形態素解析器です。") == "janomeは形態素解析器です。"
     
     # Test regex with groups
-    filter = runome.RegexReplaceCharFilter(r"(\d+)年", r"\1 year")
+    filter = RegexReplaceCharFilter(r"(\d+)年", r"\1 year")
     assert filter("2024年です") == "2024 yearです"
     
     # Test callable interface
@@ -34,25 +34,26 @@ def test_charfilters():
 
 def test_tokenfilters_basic():
     """Test basic TokenFilter bindings"""
-    import runome
+    from runome.tokenizer import Tokenizer
+    from runome.tokenfilter import LowerCaseFilter, UpperCaseFilter, CompoundNounFilter
     
-    tokenizer = runome.Tokenizer()
+    tokenizer = Tokenizer()
     tokens = list(tokenizer.tokenize("テストTEST"))
     
     # Test LowerCaseFilter
-    filter = runome.LowerCaseFilter()
+    filter = LowerCaseFilter()
     filtered = list(filter(tokens))
     assert all(hasattr(t, 'surface') for t in filtered)
     assert any(t.surface == "test" for t in filtered)
     
     # Test UpperCaseFilter
-    filter = runome.UpperCaseFilter()
+    filter = UpperCaseFilter()
     filtered = list(filter(tokens))
     assert any(t.surface == "TEST" for t in filtered)
     
     # Test CompoundNounFilter
     tokens = list(tokenizer.tokenize("形態素解析器"))
-    filter = runome.CompoundNounFilter()
+    filter = CompoundNounFilter()
     filtered = list(filter(tokens))
     # Should combine consecutive nouns
     assert len(filtered) <= len(tokens)
@@ -60,13 +61,14 @@ def test_tokenfilters_basic():
 
 def test_pos_filters():
     """Test POS-based TokenFilters"""
-    import runome
+    from runome.tokenizer import Tokenizer
+    from runome.tokenfilter import POSKeepFilter, POSStopFilter
     
-    tokenizer = runome.Tokenizer()
+    tokenizer = Tokenizer()
     tokens = list(tokenizer.tokenize("東京駅で降りる"))
     
     # Test POSKeepFilter
-    filter = runome.POSKeepFilter(["名詞"])
+    filter = POSKeepFilter(["名詞"])
     filtered = list(filter(tokens))
     # Should only keep nouns
     assert all("名詞" in t.part_of_speech for t in filtered)
@@ -74,7 +76,7 @@ def test_pos_filters():
     assert any(t.surface == "駅" for t in filtered)
     
     # Test POSStopFilter
-    filter = runome.POSStopFilter(["助詞", "動詞"])
+    filter = POSStopFilter(["助詞", "動詞"])
     filtered = list(filter(tokens))
     # Should remove particles and verbs
     assert all("助詞" not in t.part_of_speech for t in filtered)
@@ -83,27 +85,28 @@ def test_pos_filters():
 
 def test_terminal_filters():
     """Test terminal TokenFilters that change output type"""
-    import runome
+    from runome.tokenizer import Tokenizer
+    from runome.tokenfilter import ExtractAttributeFilter, TokenCountFilter, POSKeepFilter
     
-    tokenizer = runome.Tokenizer()
+    tokenizer = Tokenizer()
     
     # Test ExtractAttributeFilter
     tokens = list(tokenizer.tokenize("東京駅"))
-    filter = runome.ExtractAttributeFilter("surface")
+    filter = ExtractAttributeFilter("surface")
     results = list(filter(tokens))
     assert all(isinstance(r, str) for r in results)
     assert "東京" in results
     assert "駅" in results
     
     # Test with base_form
-    filter = runome.ExtractAttributeFilter("base_form")
+    filter = ExtractAttributeFilter("base_form")
     results = list(filter(tokens))
     assert all(isinstance(r, str) for r in results)
     
     # Test TokenCountFilter
     tokens = list(tokenizer.tokenize("すもももももももものうち"))
-    pos_filter = runome.POSKeepFilter(["名詞"])
-    count_filter = runome.TokenCountFilter("surface", sorted=True)
+    pos_filter = POSKeepFilter(["名詞"])
+    count_filter = TokenCountFilter("surface", sorted=True)
     
     filtered_tokens = list(pos_filter(tokens))
     results = list(count_filter(filtered_tokens))
@@ -124,19 +127,20 @@ def test_terminal_filters():
 
 def test_analyzer_basic():
     """Test basic Analyzer functionality"""
-    import runome
+    from runome.analyzer import Analyzer
+    from runome.charfilter import UnicodeNormalizeCharFilter, RegexReplaceCharFilter
     
     # Test default analyzer
-    analyzer = runome.Analyzer()
+    analyzer = Analyzer()
     results = list(analyzer.analyze("テスト"))
     assert len(results) > 0
     assert all(hasattr(t, 'surface') for t in results)
     
     # Test with CharFilters
-    analyzer = runome.Analyzer(
+    analyzer = Analyzer(
         char_filters=[
-            runome.UnicodeNormalizeCharFilter(),
-            runome.RegexReplaceCharFilter("蛇の目", "janome")
+            UnicodeNormalizeCharFilter(),
+            RegexReplaceCharFilter("蛇の目", "janome")
         ]
     )
     results = list(analyzer.analyze("蛇の目はＰｙｔｈｏｎです"))
@@ -147,17 +151,19 @@ def test_analyzer_basic():
 
 def test_analyzer_full_pipeline():
     """Test complete Analyzer pipeline"""
-    import runome
+    from runome.analyzer import Analyzer
+    from runome.charfilter import UnicodeNormalizeCharFilter, RegexReplaceCharFilter
+    from runome.tokenfilter import CompoundNounFilter, POSStopFilter, LowerCaseFilter
     
-    analyzer = runome.Analyzer(
+    analyzer = Analyzer(
         char_filters=[
-            runome.UnicodeNormalizeCharFilter(),
-            runome.RegexReplaceCharFilter("蛇の目", "janome")
+            UnicodeNormalizeCharFilter(),
+            RegexReplaceCharFilter("蛇の目", "janome")
         ],
         token_filters=[
-            runome.CompoundNounFilter(),
-            runome.POSStopFilter(["記号", "助詞"]),
-            runome.LowerCaseFilter()
+            CompoundNounFilter(),
+            POSStopFilter(["記号", "助詞"]),
+            LowerCaseFilter()
         ]
     )
     
@@ -182,13 +188,14 @@ def test_analyzer_full_pipeline():
 
 def test_analyzer_with_terminal_filter():
     """Test Analyzer with terminal filters"""
-    import runome
+    from runome.analyzer import Analyzer
+    from runome.tokenfilter import POSKeepFilter, ExtractAttributeFilter, TokenCountFilter
     
     # Test with ExtractAttributeFilter
-    analyzer = runome.Analyzer(
+    analyzer = Analyzer(
         token_filters=[
-            runome.POSKeepFilter(["名詞"]),
-            runome.ExtractAttributeFilter("surface")
+            POSKeepFilter(["名詞"]),
+            ExtractAttributeFilter("surface")
         ]
     )
     
@@ -199,10 +206,10 @@ def test_analyzer_with_terminal_filter():
     assert "降りる" not in results  # verb should be filtered out
     
     # Test with TokenCountFilter
-    analyzer = runome.Analyzer(
+    analyzer = Analyzer(
         token_filters=[
-            runome.POSKeepFilter(["名詞"]),
-            runome.TokenCountFilter("surface", sorted=True)
+            POSKeepFilter(["名詞"]),
+            TokenCountFilter("surface", sorted=True)
         ]
     )
     
@@ -217,29 +224,32 @@ def test_analyzer_with_terminal_filter():
 
 def test_analyzer_wakati_rejection():
     """Test that Analyzer rejects wakati mode tokenizer"""
-    import runome
+    from runome.analyzer import Analyzer
+    from runome.tokenizer import Tokenizer
     
     # Create tokenizer with wakati=True
-    wakati_tokenizer = runome.Tokenizer(wakati=True)
+    wakati_tokenizer = Tokenizer(wakati=True)
     
     # Should raise exception
     with pytest.raises(Exception) as excinfo:
-        runome.Analyzer(tokenizer=wakati_tokenizer)
+        Analyzer(tokenizer=wakati_tokenizer)
     
     assert "wakati=True" in str(excinfo.value)
 
 
 def test_custom_tokenizer():
     """Test Analyzer with custom tokenizer settings"""
-    import runome
+    from runome.analyzer import Analyzer
+    from runome.tokenizer import Tokenizer
+    from runome.tokenfilter import LowerCaseFilter
     
     # Create tokenizer with user dictionary
     # Note: This assumes no user dictionary file, but tests the parameter passing
-    tokenizer = runome.Tokenizer(max_unknown_length=512)
+    tokenizer = Tokenizer(max_unknown_length=512)
     
-    analyzer = runome.Analyzer(
+    analyzer = Analyzer(
         tokenizer=tokenizer,
-        token_filters=[runome.LowerCaseFilter()]
+        token_filters=[LowerCaseFilter()]
     )
     
     results = list(analyzer.analyze("TEST"))
@@ -248,19 +258,21 @@ def test_custom_tokenizer():
 
 def test_filter_chaining():
     """Test complex filter chaining"""
-    import runome
+    from runome.analyzer import Analyzer
+    from runome.charfilter import RegexReplaceCharFilter, UnicodeNormalizeCharFilter
+    from runome.tokenfilter import CompoundNounFilter, POSKeepFilter, LowerCaseFilter
     
     # Create a complex pipeline
-    analyzer = runome.Analyzer(
+    analyzer = Analyzer(
         char_filters=[
-            runome.RegexReplaceCharFilter(r"\s+", " "),  # Normalize whitespace
-            runome.RegexReplaceCharFilter(r"[！-～]", ""),  # Remove full-width symbols
-            runome.UnicodeNormalizeCharFilter()
+            RegexReplaceCharFilter(r"\s+", " "),  # Normalize whitespace
+            RegexReplaceCharFilter(r"[！-～]", ""),  # Remove full-width symbols
+            UnicodeNormalizeCharFilter()
         ],
         token_filters=[
-            runome.CompoundNounFilter(),
-            runome.POSKeepFilter(["名詞", "動詞", "形容詞"]),
-            runome.LowerCaseFilter()
+            CompoundNounFilter(),
+            POSKeepFilter(["名詞", "動詞", "形容詞"]),
+            LowerCaseFilter()
         ]
     )
     
@@ -275,22 +287,23 @@ def test_filter_chaining():
 
 def test_error_handling():
     """Test error handling in bindings"""
-    import runome
+    from runome.charfilter import RegexReplaceCharFilter, UnicodeNormalizeCharFilter
+    from runome.tokenfilter import ExtractAttributeFilter, TokenCountFilter
     
     # Test invalid regex pattern
     with pytest.raises(Exception):
-        runome.RegexReplaceCharFilter("[invalid", "replacement")
+        RegexReplaceCharFilter("[invalid", "replacement")
     
     # Test invalid normalization form
     with pytest.raises(Exception):
-        runome.UnicodeNormalizeCharFilter("INVALID")
+        UnicodeNormalizeCharFilter("INVALID")
     
     # Test invalid attribute name
     with pytest.raises(Exception):
-        runome.ExtractAttributeFilter("invalid_attribute")
+        ExtractAttributeFilter("invalid_attribute")
     
     with pytest.raises(Exception):
-        runome.TokenCountFilter("invalid_attribute")
+        TokenCountFilter("invalid_attribute")
 
 
 if __name__ == "__main__":
