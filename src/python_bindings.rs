@@ -1,6 +1,7 @@
+use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use pyo3::IntoPyObjectExt;
+use std::sync::Arc;
 
 use crate::error::RunomeError;
 use crate::tokenizer::{Token as RustToken, TokenizeResult, Tokenizer as RustTokenizer};
@@ -115,7 +116,9 @@ impl PyTokenIterator {
             match result {
                 TokenizeResult::Token(token) => {
                     // Return PyToken object - Rust tokenizer decided this should be a token
-                    Ok(Some(PyToken::from_rust_token(token.clone()).into_py_any(py)?))
+                    Ok(Some(
+                        PyToken::from_rust_token(token.clone()).into_py_any(py)?,
+                    ))
                 }
                 TokenizeResult::Surface(surface) => {
                     // Return surface string - Rust tokenizer decided this should be wakati mode
@@ -137,20 +140,83 @@ impl PyTokenizer {
     /// Initialize Tokenizer with Janome-compatible parameters
     ///
     /// Args:
-    ///     udic (str): User dictionary file path (default: '')
+    ///     udic (str): User dictionary file path (CSV format) or directory path to compiled dictionary data (default: '')
+    ///     udic_enc (str): Character encoding for user dictionary (default: 'utf8')
+    ///     udic_type (str): User dictionary type - 'ipadic' or 'simpledic' (default: 'ipadic')
     ///     max_unknown_length (int): Maximum unknown word length (default: 1024)
     ///     wakati (bool): Wakati mode flag (default: False)
     #[new]
-    #[pyo3(signature = (udic = "", max_unknown_length = 1024, wakati = false))]
-    fn new(udic: &str, max_unknown_length: usize, wakati: bool) -> PyResult<Self> {
-        // For now, ignore user dictionary parameter
-        // TODO: Implement user dictionary loading
-        if !udic.is_empty() {
-            return Err(PyException::new_err("User dictionary not yet implemented"));
-        }
+    #[pyo3(signature = (udic = "", *, udic_enc = "utf8", udic_type = "ipadic", max_unknown_length = 1024, wakati = false))]
+    fn new(
+        udic: &str,
+        udic_enc: &str,
+        udic_type: &str,
+        max_unknown_length: usize,
+        wakati: bool,
+    ) -> PyResult<Self> {
+        let tokenizer = if udic.is_empty() {
+            // No user dictionary
+            RustTokenizer::new(Some(max_unknown_length), Some(wakati))
+                .map_err(|e| PyException::new_err(format!("Failed to create tokenizer: {:?}", e)))?
+        } else {
+            // Convert udic_type string to enum
+            let dict_format = match udic_type {
+                "ipadic" => crate::dictionary::user_dict::UserDictFormat::Ipadic,
+                "simpledic" => crate::dictionary::user_dict::UserDictFormat::Simpledic,
+                _ => {
+                    return Err(PyException::new_err(format!(
+                        "Unsupported user dictionary type: {}. Use 'ipadic' or 'simpledic'",
+                        udic_type
+                    )));
+                }
+            };
 
-        let tokenizer = RustTokenizer::new(Some(max_unknown_length), Some(wakati))
-            .map_err(|e| PyException::new_err(format!("Failed to create tokenizer: {:?}", e)))?;
+            // Convert encoding string to Rust encoding
+            let encoding = match udic_enc {
+                "utf8" | "utf-8" => encoding_rs::UTF_8,
+                "euc-jp" => encoding_rs::EUC_JP,
+                "shift_jis" | "sjis" => encoding_rs::SHIFT_JIS,
+                _ => {
+                    return Err(PyException::new_err(format!(
+                        "Unsupported encoding: {}. Supported encodings are 'utf8', 'euc-jp', and 'shift_jis'",
+                        udic_enc
+                    )));
+                }
+            };
+
+            // Load user dictionary
+            let user_dict = {
+                use std::path::Path;
+                let connections = crate::dictionary::system_dict::SystemDictionary::instance()
+                    .map_err(|e| {
+                        PyException::new_err(format!("Failed to load system dictionary: {:?}", e))
+                    })?
+                    .get_connection_matrix();
+
+                crate::dictionary::user_dict::UserDictionary::new_with_encoding(
+                    Path::new(udic),
+                    dict_format,
+                    encoding,
+                    connections,
+                )
+                .map_err(|e| {
+                    PyException::new_err(format!("Failed to load user dictionary: {:?}", e))
+                })?
+            };
+
+            // Create tokenizer with user dictionary
+            RustTokenizer::with_user_dict(
+                Arc::new(user_dict),
+                Some(max_unknown_length),
+                Some(wakati),
+            )
+            .map_err(|e| {
+                PyException::new_err(format!(
+                    "Failed to create tokenizer with user dictionary: {:?}",
+                    e
+                ))
+            })?
+        };
 
         Ok(PyTokenizer { inner: tokenizer })
     }
@@ -190,7 +256,6 @@ impl PyTokenizer {
             index: 0,
         })
     }
-
 }
 
 /// Python module definition

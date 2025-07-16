@@ -2,7 +2,7 @@
 Type stubs for runome Rust module.
 """
 
-from typing import Iterator, Optional, Union
+from typing import Optional, Union
 
 class Token:
     """Token with morphological information."""
@@ -70,12 +70,20 @@ class Tokenizer:
     """Japanese morphological analyzer."""
 
     def __init__(
-        self, udic: str = "", max_unknown_length: int = 1024, wakati: bool = False
+        self, 
+        udic: str = "", 
+        *, 
+        udic_enc: str = "utf8",
+        udic_type: str = "ipadic",
+        max_unknown_length: int = 1024, 
+        wakati: bool = False
     ) -> None:
         """Initialize tokenizer.
 
         Args:
-            udic: User dictionary file path (default: '')
+            udic: User dictionary file path (CSV format) or directory path to compiled dictionary data (default: '')
+            udic_enc: Character encoding for user dictionary - 'utf8', 'euc-jp', or 'shift_jis' (default: 'utf8')
+            udic_type: User dictionary type - 'ipadic' or 'simpledic' (default: 'ipadic')
             max_unknown_length: Maximum unknown word length (default: 1024)
             wakati: Wakati mode flag (default: False)
         """

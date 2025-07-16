@@ -26,10 +26,10 @@ class TestBasicPythonBinding:
         tokenizer = Tokenizer(max_unknown_length=2048, wakati=True)
         assert tokenizer is not None
 
-    def test_tokenizer_user_dict_not_implemented(self):
-        """Test that user dictionary raises appropriate error."""
-        with pytest.raises(Exception, match="User dictionary not yet implemented"):
-            Tokenizer(udic="test.csv")
+    def test_tokenizer_user_dict_invalid_file(self):
+        """Test that invalid user dictionary file raises appropriate error."""
+        with pytest.raises(Exception):
+            Tokenizer(udic="nonexistent.csv")
 
     def test_basic_tokenization(self):
         """Test basic tokenization returns tokens."""
@@ -361,6 +361,405 @@ class TestCompatibility:
         tokens = list(tokenizer.tokenize("テスト", wakati=True, baseform_unk=True))
         assert len(tokens) > 0
         assert all(isinstance(token, str) for token in tokens)
+
+
+class TestUserDictionary:
+    """Test user dictionary functionality."""
+
+    def setup_method(self):
+        """Setup test data paths."""
+        test_dir = os.path.dirname(__file__)
+        self.user_ipadic_path = os.path.join(test_dir, "user_ipadic.csv")
+        self.user_simpledic_path = os.path.join(test_dir, "user_simpledic.csv")
+        self.user_ipadic_eucjp_path = os.path.join(test_dir, "user_ipadic_eucjp.csv")
+        self.user_ipadic_sjis_path = os.path.join(test_dir, "user_ipadic_sjis.csv")
+
+    def test_user_dict_ipadic_creation(self):
+        """Test creating tokenizer with IPADIC format user dictionary."""
+        tokenizer = Tokenizer(udic=self.user_ipadic_path, udic_type="ipadic")
+        assert tokenizer is not None
+
+    def test_user_dict_simpledic_creation(self):
+        """Test creating tokenizer with Simpledic format user dictionary."""
+        tokenizer = Tokenizer(udic=self.user_simpledic_path, udic_type="simpledic")
+        assert tokenizer is not None
+
+    def test_user_dict_ipadic_tokenization(self):
+        """Test tokenization with IPADIC format user dictionary."""
+        tokenizer = Tokenizer(udic=self.user_ipadic_path, udic_type="ipadic")
+        
+        # Test text from Janome examples
+        text = "東京スカイツリーへのお越しは、東武スカイツリーライン「とうきょうスカイツリー駅」が便利です。"
+        tokens = list(tokenizer.tokenize(text))
+        
+        # Find user dictionary tokens
+        user_dict_tokens = [token for token in tokens if "user" in token.node_type.lower()]
+        assert len(user_dict_tokens) >= 3  # Should have at least the 3 user dict entries
+        
+        # Check specific user dictionary tokens
+        surfaces = [token.surface for token in tokens]
+        assert "東京スカイツリー" in surfaces
+        assert "東武スカイツリーライン" in surfaces  
+        assert "とうきょうスカイツリー駅" in surfaces
+        
+        # Check that user dictionary tokens have correct part of speech
+        for token in tokens:
+            if token.surface == "東京スカイツリー":
+                assert token.part_of_speech == "名詞,固有名詞,一般,*"
+                assert "user" in token.node_type.lower()
+                break
+
+    def test_user_dict_simpledic_tokenization(self):
+        """Test tokenization with Simpledic format user dictionary."""
+        tokenizer = Tokenizer(udic=self.user_simpledic_path, udic_type="simpledic")
+        
+        # Test text from Janome examples  
+        text = "東京スカイツリーへのお越しは、東武スカイツリーライン「とうきょうスカイツリー駅」が便利です。"
+        tokens = list(tokenizer.tokenize(text))
+        
+        # Find user dictionary tokens
+        user_dict_tokens = [token for token in tokens if "user" in token.node_type.lower()]
+        assert len(user_dict_tokens) >= 3  # Should have at least the 3 user dict entries
+        
+        # Check that user dictionary tokens have correct part of speech (from simpledic)
+        for token in tokens:
+            if token.surface == "東京スカイツリー":
+                assert token.part_of_speech == "カスタム名詞,*,*,*"
+                assert "user" in token.node_type.lower()
+                break
+
+    def test_user_dict_vs_no_user_dict(self):
+        """Test difference between using user dict and not using it."""
+        # Tokenizer without user dictionary
+        tokenizer_normal = Tokenizer()
+        tokens_normal = list(tokenizer_normal.tokenize("東京スカイツリー"))
+        
+        # Tokenizer with user dictionary
+        tokenizer_user = Tokenizer(udic=self.user_ipadic_path, udic_type="ipadic")
+        tokens_user = list(tokenizer_user.tokenize("東京スカイツリー"))
+        
+        # Without user dict, this should be broken into multiple tokens
+        assert len(tokens_normal) > 1
+        
+        # With user dict, this should be a single token
+        assert len(tokens_user) == 1
+        assert tokens_user[0].surface == "東京スカイツリー"
+        assert "user" in tokens_user[0].node_type.lower()
+
+    def test_user_dict_invalid_type(self):
+        """Test invalid user dictionary type."""
+        with pytest.raises(Exception, match="Unsupported user dictionary type"):
+            Tokenizer(udic=self.user_ipadic_path, udic_type="invalid")
+
+    def test_user_dict_unsupported_encoding(self):
+        """Test unsupported encoding."""
+        with pytest.raises(Exception, match="Unsupported encoding"):
+            Tokenizer(udic=self.user_ipadic_path, udic_enc="iso-8859-1")
+
+    def test_user_dict_euc_jp_encoding(self):
+        """Test EUC-JP encoding support."""
+        tokenizer = Tokenizer(udic=self.user_ipadic_eucjp_path, udic_type="ipadic", udic_enc="euc-jp")
+        tokens = list(tokenizer.tokenize("東京スカイツリー"))
+        
+        assert len(tokens) == 1
+        assert tokens[0].surface == "東京スカイツリー"
+        assert tokens[0].part_of_speech == "名詞,固有名詞,一般,*"
+        assert "user" in tokens[0].node_type.lower()
+
+    def test_user_dict_shift_jis_encoding(self):
+        """Test Shift_JIS encoding support."""
+        tokenizer = Tokenizer(udic=self.user_ipadic_sjis_path, udic_type="ipadic", udic_enc="shift_jis")
+        tokens = list(tokenizer.tokenize("東京スカイツリー"))
+        
+        assert len(tokens) == 1
+        assert tokens[0].surface == "東京スカイツリー"
+        assert tokens[0].part_of_speech == "名詞,固有名詞,一般,*"
+        assert "user" in tokens[0].node_type.lower()
+
+    def test_user_dict_encoding_variations(self):
+        """Test different encoding name variations."""
+        # Test utf-8 variant
+        tokenizer1 = Tokenizer(udic=self.user_ipadic_path, udic_type="ipadic", udic_enc="utf-8")
+        tokens1 = list(tokenizer1.tokenize("東京スカイツリー"))
+        assert len(tokens1) == 1
+        
+        # Test sjis variant
+        tokenizer2 = Tokenizer(udic=self.user_ipadic_sjis_path, udic_type="ipadic", udic_enc="sjis")
+        tokens2 = list(tokenizer2.tokenize("東京スカイツリー"))
+        assert len(tokens2) == 1
+
+    def test_user_dict_wakati_mode(self):
+        """Test user dictionary with wakati mode."""
+        tokenizer = Tokenizer(udic=self.user_ipadic_path, udic_type="ipadic")
+        
+        # Test wakati mode
+        tokens = list(tokenizer.tokenize("東京スカイツリー", wakati=True))
+        assert len(tokens) == 1
+        assert isinstance(tokens[0], str)
+        assert tokens[0] == "東京スカイツリー"
+
+    def test_tokenize_with_userdic(self):
+        """Test tokenization with user dictionary (IPADIC format) - equivalent to Rust test_tokenize_with_userdic."""
+        tokenizer = Tokenizer(udic=self.user_ipadic_path, udic_type="ipadic")
+        
+        # Test text from Janome examples - exactly the same as Rust test
+        text = "東京スカイツリーへのお越しは、東武スカイツリーライン「とうきょうスカイツリー駅」が便利です。"
+        tokens = list(tokenizer.tokenize(text))
+        
+        # Should produce exactly 14 tokens (same as Rust test)
+        assert len(tokens) == 14, f"Expected 14 tokens but got {len(tokens)}"
+        
+        # Helper function to check token properties (equivalent to Rust check_token)
+        def check_token(token, expected_surface, expected_detail, expected_node_type):
+            assert token.surface == expected_surface, f"Surface mismatch: expected '{expected_surface}', got '{token.surface}'"
+            
+            # Reconstruct detail string from token properties
+            detail_parts = [
+                token.part_of_speech,
+                token.infl_type, 
+                token.infl_form,
+                token.base_form,
+                token.reading,
+                token.phonetic,
+            ]
+            actual_detail = ",".join(detail_parts)
+            assert actual_detail == expected_detail, f"Detail mismatch for '{expected_surface}': expected '{expected_detail}', got '{actual_detail}'"
+            
+            # Check string representation
+            expected_str = f"{expected_surface}\t{expected_detail}"
+            assert str(token) == expected_str, f"String representation mismatch for '{expected_surface}'"
+            
+            # Check node type (case-insensitive contains check)
+            assert expected_node_type.lower() in token.node_type.lower(), f"Node type mismatch for '{expected_surface}': expected '{expected_node_type}' in '{token.node_type}'"
+        
+        # Validate key tokens from user dictionary - same expectations as Rust test
+        check_token(
+            tokens[0],
+            "東京スカイツリー",
+            "名詞,固有名詞,一般,*,*,*,東京スカイツリー,トウキョウスカイツリー,トウキョウスカイツリー",
+            "userdict"
+        )
+        check_token(
+            tokens[1],
+            "へ",
+            "助詞,格助詞,一般,*,*,*,へ,ヘ,エ",
+            "sysdict"
+        )
+        check_token(
+            tokens[2],
+            "の",
+            "助詞,連体化,*,*,*,*,の,ノ,ノ",
+            "sysdict"
+        )
+        check_token(
+            tokens[3],
+            "お越し",
+            "名詞,一般,*,*,*,*,お越し,オコシ,オコシ",
+            "sysdict"
+        )
+        check_token(
+            tokens[4],
+            "は",
+            "助詞,係助詞,*,*,*,*,は,ハ,ワ",
+            "sysdict"
+        )
+        check_token(
+            tokens[5],
+            "、",
+            "記号,読点,*,*,*,*,、,、,、",
+            "sysdict"
+        )
+        check_token(
+            tokens[6],
+            "東武スカイツリーライン",
+            "名詞,固有名詞,一般,*,*,*,東武スカイツリーライン,トウブスカイツリーライン,トウブスカイツリーライン",
+            "userdict"
+        )
+        check_token(
+            tokens[7],
+            "「",
+            "記号,括弧開,*,*,*,*,「,「,「",
+            "sysdict"
+        )
+        check_token(
+            tokens[8],
+            "とうきょうスカイツリー駅",
+            "名詞,固有名詞,一般,*,*,*,とうきょうスカイツリー駅,トウキョウスカイツリーエキ,トウキョウスカイツリーエキ",
+            "userdict"
+        )
+        check_token(
+            tokens[9],
+            "」",
+            "記号,括弧閉,*,*,*,*,」,」,」",
+            "sysdict"
+        )
+        check_token(
+            tokens[10],
+            "が",
+            "助詞,格助詞,一般,*,*,*,が,ガ,ガ",
+            "sysdict"
+        )
+        check_token(
+            tokens[11],
+            "便利",
+            "名詞,形容動詞語幹,*,*,*,*,便利,ベンリ,ベンリ",
+            "sysdict"
+        )
+        check_token(
+            tokens[12],
+            "です",
+            "助動詞,*,*,*,特殊・デス,基本形,です,デス,デス",
+            "sysdict"
+        )
+        check_token(
+            tokens[13],
+            "。",
+            "記号,句点,*,*,*,*,。,。,。",
+            "sysdict"
+        )
+        
+        # Verify that user dictionary tokens are properly identified
+        user_dict_tokens = [token for token in tokens if "user" in token.node_type.lower()]
+        assert len(user_dict_tokens) == 3, f"Expected exactly 3 user dictionary tokens, got {len(user_dict_tokens)}"
+        
+        # Check surfaces of user dictionary tokens
+        user_surfaces = [token.surface for token in user_dict_tokens]
+        expected_user_surfaces = ["東京スカイツリー", "東武スカイツリーライン", "とうきょうスカイツリー駅"]
+        assert user_surfaces == expected_user_surfaces, f"User dictionary token surfaces mismatch: expected {expected_user_surfaces}, got {user_surfaces}"
+
+    def test_tokenize_with_simplified_userdic(self):
+        """Test tokenization with simplified user dictionary - equivalent to Rust test_tokenize_with_simplified_userdic."""
+        tokenizer = Tokenizer(udic=self.user_simpledic_path, udic_type="simpledic")
+        
+        # Test text from Janome examples - exactly the same as Rust test
+        text = "東京スカイツリーへのお越しは、東武スカイツリーライン「とうきょうスカイツリー駅」が便利です。"
+        tokens = list(tokenizer.tokenize(text))
+        
+        # Should produce exactly 14 tokens (same as Rust test)
+        assert len(tokens) == 14, f"Expected 14 tokens but got {len(tokens)}"
+        
+        # Helper function to check token properties (equivalent to Rust check_token)
+        def check_token(token, expected_surface, expected_detail, expected_node_type):
+            assert token.surface == expected_surface, f"Surface mismatch: expected '{expected_surface}', got '{token.surface}'"
+            
+            # Reconstruct detail string from token properties
+            detail_parts = [
+                token.part_of_speech,
+                token.infl_type, 
+                token.infl_form,
+                token.base_form,
+                token.reading,
+                token.phonetic,
+            ]
+            actual_detail = ",".join(detail_parts)
+            assert actual_detail == expected_detail, f"Detail mismatch for '{expected_surface}': expected '{expected_detail}', got '{actual_detail}'"
+            
+            # Check string representation
+            expected_str = f"{expected_surface}\t{expected_detail}"
+            assert str(token) == expected_str, f"String representation mismatch for '{expected_surface}'"
+            
+            # Check node type (case-insensitive contains check)
+            assert expected_node_type.lower() in token.node_type.lower(), f"Node type mismatch for '{expected_surface}': expected '{expected_node_type}' in '{token.node_type}'"
+        
+        # Validate key tokens from user dictionary (simplified format) - same expectations as Rust test
+        check_token(
+            tokens[0],
+            "東京スカイツリー",
+            "カスタム名詞,*,*,*,*,*,東京スカイツリー,トウキョウスカイツリー,トウキョウスカイツリー",
+            "userdict"
+        )
+        check_token(
+            tokens[1],
+            "へ",
+            "助詞,格助詞,一般,*,*,*,へ,ヘ,エ",
+            "sysdict"
+        )
+        check_token(
+            tokens[2],
+            "の",
+            "助詞,連体化,*,*,*,*,の,ノ,ノ",
+            "sysdict"
+        )
+        check_token(
+            tokens[3],
+            "お越し",
+            "名詞,一般,*,*,*,*,お越し,オコシ,オコシ",
+            "sysdict"
+        )
+        check_token(
+            tokens[4],
+            "は",
+            "助詞,係助詞,*,*,*,*,は,ハ,ワ",
+            "sysdict"
+        )
+        check_token(
+            tokens[5],
+            "、",
+            "記号,読点,*,*,*,*,、,、,、",
+            "sysdict"
+        )
+        check_token(
+            tokens[6],
+            "東武スカイツリーライン",
+            "カスタム名詞,*,*,*,*,*,東武スカイツリーライン,トウブスカイツリーライン,トウブスカイツリーライン",
+            "userdict"
+        )
+        check_token(
+            tokens[7],
+            "「",
+            "記号,括弧開,*,*,*,*,「,「,「",
+            "sysdict"
+        )
+        check_token(
+            tokens[8],
+            "とうきょうスカイツリー駅",
+            "カスタム名詞,*,*,*,*,*,とうきょうスカイツリー駅,トウキョウスカイツリーエキ,トウキョウスカイツリーエキ",
+            "userdict"
+        )
+        check_token(
+            tokens[9],
+            "」",
+            "記号,括弧閉,*,*,*,*,」,」,」",
+            "sysdict"
+        )
+        check_token(
+            tokens[10],
+            "が",
+            "助詞,格助詞,一般,*,*,*,が,ガ,ガ",
+            "sysdict"
+        )
+        check_token(
+            tokens[11],
+            "便利",
+            "名詞,形容動詞語幹,*,*,*,*,便利,ベンリ,ベンリ",
+            "sysdict"
+        )
+        check_token(
+            tokens[12],
+            "です",
+            "助動詞,*,*,*,特殊・デス,基本形,です,デス,デス",
+            "sysdict"
+        )
+        check_token(
+            tokens[13],
+            "。",
+            "記号,句点,*,*,*,*,。,。,。",
+            "sysdict"
+        )
+        
+        # Verify that user dictionary tokens are properly identified
+        user_dict_tokens = [token for token in tokens if "user" in token.node_type.lower()]
+        assert len(user_dict_tokens) == 3, f"Expected exactly 3 user dictionary tokens, got {len(user_dict_tokens)}"
+        
+        # Check surfaces of user dictionary tokens
+        user_surfaces = [token.surface for token in user_dict_tokens]
+        expected_user_surfaces = ["東京スカイツリー", "東武スカイツリーライン", "とうきょうスカイツリー駅"]
+        assert user_surfaces == expected_user_surfaces, f"User dictionary token surfaces mismatch: expected {expected_user_surfaces}, got {user_surfaces}"
+        
+        # Verify that simplified format tokens have the custom part of speech
+        for token in user_dict_tokens:
+            # For simplified format, the part_of_speech should start with "カスタム名詞"
+            assert token.part_of_speech.startswith("カスタム名詞"), f"Expected simplified format custom part of speech starting with 'カスタム名詞', got '{token.part_of_speech}' for token '{token.surface}'"
 
 
 if __name__ == "__main__":

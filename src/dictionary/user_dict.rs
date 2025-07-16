@@ -53,6 +53,34 @@ impl UserDictionary {
         })
     }
 
+    /// Create new UserDictionary from CSV file with specified encoding
+    ///
+    /// # Arguments
+    /// * `csv_path` - Path to CSV file containing user dictionary entries
+    /// * `format` - Format of the CSV file (IPADIC or Simpledic)
+    /// * `encoding` - Character encoding of the CSV file (UTF-8, EUC-JP, Shift_JIS, etc.)
+    /// * `connections` - Reference to system dictionary connection matrix
+    ///
+    /// # Returns
+    /// * `Ok(UserDictionary)` - Successfully created user dictionary
+    /// * `Err(RunomeError)` - Error if CSV parsing, encoding conversion, or FST building fails
+    pub fn new_with_encoding(
+        csv_path: &Path,
+        format: UserDictFormat,
+        encoding: &'static encoding_rs::Encoding,
+        connections: Arc<Vec<Vec<i16>>>,
+    ) -> Result<Self, RunomeError> {
+        let entries = Self::load_entries_with_encoding(csv_path, format, encoding)?;
+        let (matcher, morpheme_index) = Self::build_fst(&entries)?;
+
+        Ok(Self {
+            entries,
+            morpheme_index,
+            matcher,
+            connections,
+        })
+    }
+
     /// Load dictionary entries from CSV file
     fn load_entries(
         csv_path: &Path,
@@ -62,6 +90,53 @@ impl UserDictionary {
             std::fs::read_to_string(csv_path).map_err(|e| RunomeError::UserDictError {
                 reason: format!("Failed to read CSV file {:?}: {}", csv_path, e),
             })?;
+
+        let mut entries = Vec::new();
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let entry = match format {
+                UserDictFormat::Ipadic => Self::parse_ipadic_line(line, entries.len())?,
+                UserDictFormat::Simpledic => Self::parse_simpledic_line(line, entries.len())?,
+            };
+
+            entries.push(entry);
+        }
+
+        if entries.is_empty() {
+            return Err(RunomeError::UserDictError {
+                reason: format!("No valid entries found in CSV file {:?}", csv_path),
+            });
+        }
+
+        Ok(entries)
+    }
+
+    /// Load dictionary entries from CSV file with specified encoding
+    fn load_entries_with_encoding(
+        csv_path: &Path,
+        format: UserDictFormat,
+        encoding: &'static encoding_rs::Encoding,
+    ) -> Result<Vec<DictEntry>, RunomeError> {
+        // Read file as bytes
+        let bytes = std::fs::read(csv_path).map_err(|e| RunomeError::UserDictError {
+            reason: format!("Failed to read CSV file {:?}: {}", csv_path, e),
+        })?;
+
+        // Decode using specified encoding
+        let (content, _encoding_used, had_errors) = encoding.decode(&bytes);
+        if had_errors {
+            return Err(RunomeError::UserDictError {
+                reason: format!(
+                    "Failed to decode CSV file {:?} using encoding {}",
+                    csv_path,
+                    encoding.name()
+                ),
+            });
+        }
 
         let mut entries = Vec::new();
         for line in content.lines() {
