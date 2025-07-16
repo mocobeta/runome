@@ -2,13 +2,14 @@
 name = "runome"
 version = "0.1.0"
 edition = "2024"
+build = "build.rs"
 
 [lib]
 name = "runome"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["python"]
+default = []
 python = ["pyo3"]
 
 [dependencies]

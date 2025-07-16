@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use super::{Dictionary, DictionaryResource, RAMDictionary};
@@ -22,6 +22,88 @@ static SYSTEM_DICT_INSTANCE: Lazy<Arc<Mutex<Option<Arc<SystemDictionary>>>>> =
     Lazy::new(|| Arc::new(Mutex::new(None)));
 
 impl SystemDictionary {
+    /// Get the sysdic path, trying bundled location first, then relative path
+    ///
+    /// # Returns
+    /// * `PathBuf` - Path to the sysdic directory
+    fn get_sysdic_path() -> PathBuf {
+        // Try bundled path first (set by build.rs)
+        if let Ok(bundled_path) = std::env::var("SYSDIC_PATH") {
+            let path = PathBuf::from(bundled_path);
+            if path.exists() {
+                return path;
+            }
+        }
+
+        // Try Python package location (for installed packages)
+        #[cfg(feature = "python")]
+        {
+            // First try the bundled location within the Python package
+            if let Ok(module_path) = std::env::var("CARGO_MANIFEST_DIR") {
+                let package_sysdic = PathBuf::from(&module_path).join("runome/sysdic");
+                if package_sysdic.exists() {
+                    return package_sysdic;
+                }
+            }
+
+            // Try to find sysdic using Python module introspection
+            // This is the most reliable way for installed packages
+            // Only try this if we're running in a Python extension context
+            if std::env::var("PYTHONPATH").is_ok() || std::env::var("VIRTUAL_ENV").is_ok() {
+                use pyo3::prelude::*;
+                if let Ok(py_result) = Python::with_gil(|py| -> PyResult<Option<PathBuf>> {
+                    // Import the runome module to get its location
+                    let runome_module = py.import("runome")?;
+                    let file_attr = runome_module.getattr("__file__")?;
+                    let module_file: String = file_attr.extract()?;
+
+                    // Get the directory containing the module
+                    let module_dir = PathBuf::from(module_file).parent().unwrap().to_path_buf();
+                    let sysdic_path = module_dir.join("sysdic");
+
+                    if sysdic_path.exists() {
+                        Ok(Some(sysdic_path))
+                    } else {
+                        Ok(None)
+                    }
+                }) {
+                    if let Some(path) = py_result {
+                        return path;
+                    }
+                }
+            }
+
+            // Fallback: Try to find sysdic relative to current working directory
+            let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let mut search_dir = current_dir.clone();
+
+            // Search upward in the directory tree for a runome package
+            for _ in 0..5 {
+                // Limit search depth
+                let candidate_path = search_dir.join("runome/sysdic");
+                if candidate_path.exists() {
+                    return candidate_path;
+                }
+
+                if let Some(parent) = search_dir.parent() {
+                    search_dir = parent.to_path_buf();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Try relative to current module (for Python packages)
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let relative_sysdic = current_dir.join("sysdic");
+        if relative_sysdic.exists() {
+            return relative_sysdic;
+        }
+
+        // Fall back to relative path for development
+        PathBuf::from("sysdic")
+    }
+
     /// Get singleton instance of SystemDictionary
     ///
     /// Returns a shared reference to the singleton SystemDictionary instance,
@@ -44,9 +126,9 @@ impl SystemDictionary {
 
         drop(instance_lock);
 
-        // Create new instance using default sysdic path
-        let sysdic_path = Path::new("sysdic");
-        let new_instance = Arc::new(Self::new(sysdic_path)?);
+        // Create new instance using sysdic path resolution
+        let sysdic_path = Self::get_sysdic_path();
+        let new_instance = Arc::new(Self::new(&sysdic_path)?);
 
         let mut instance_lock =
             SYSTEM_DICT_INSTANCE
