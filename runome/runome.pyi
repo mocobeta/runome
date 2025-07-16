@@ -70,13 +70,13 @@ class Tokenizer:
     """Japanese morphological analyzer."""
 
     def __init__(
-        self, 
-        udic: str = "", 
-        *, 
+        self,
+        udic: str = "",
+        *,
         udic_enc: str = "utf8",
         udic_type: str = "ipadic",
-        max_unknown_length: int = 1024, 
-        wakati: bool = False
+        max_unknown_length: int = 1024,
+        wakati: bool = False,
     ) -> None:
         """Initialize tokenizer.
 

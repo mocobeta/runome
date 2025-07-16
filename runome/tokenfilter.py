@@ -6,11 +6,25 @@ for various analysis purposes.
 """
 
 from .runome import (
-    TokenFilter, LowerCaseFilter, UpperCaseFilter, POSStopFilter, POSKeepFilter,
-    CompoundNounFilter, ExtractAttributeFilter, TokenCountFilter, TokenFilterIterator
+    TokenFilter,
+    LowerCaseFilter,
+    UpperCaseFilter,
+    POSStopFilter,
+    POSKeepFilter,
+    CompoundNounFilter,
+    ExtractAttributeFilter,
+    TokenCountFilter,
+    TokenFilterIterator,
 )
 
 __all__ = [
-    'TokenFilter', 'LowerCaseFilter', 'UpperCaseFilter', 'POSStopFilter', 'POSKeepFilter',
-    'CompoundNounFilter', 'ExtractAttributeFilter', 'TokenCountFilter', 'TokenFilterIterator'
+    "TokenFilter",
+    "LowerCaseFilter",
+    "UpperCaseFilter",
+    "POSStopFilter",
+    "POSKeepFilter",
+    "CompoundNounFilter",
+    "ExtractAttributeFilter",
+    "TokenCountFilter",
+    "TokenFilterIterator",
 ]

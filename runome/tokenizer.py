@@ -7,4 +7,4 @@ the Janome library but with improved performance through Rust implementation.
 
 from .runome import Token, Tokenizer
 
-__all__ = ['Token', 'Tokenizer']
+__all__ = ["Token", "Tokenizer"]

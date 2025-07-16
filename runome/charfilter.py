@@ -7,4 +7,4 @@ before tokenization occurs.
 
 from .runome import CharFilter, RegexReplaceCharFilter, UnicodeNormalizeCharFilter
 
-__all__ = ['CharFilter', 'RegexReplaceCharFilter', 'UnicodeNormalizeCharFilter']
+__all__ = ["CharFilter", "RegexReplaceCharFilter", "UnicodeNormalizeCharFilter"]

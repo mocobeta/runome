@@ -7,4 +7,4 @@ with composable character filters and token filters.
 
 from .runome import Analyzer
 
-__all__ = ['Analyzer']
+__all__ = ["Analyzer"]
