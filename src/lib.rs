@@ -1,3 +1,4 @@
+pub mod analyzer;
 pub mod charfilter;
 pub mod dict_builder;
 pub mod dictionary;
@@ -12,6 +13,7 @@ pub mod python_bindings;
 #[cfg(test)]
 pub mod tokenizer_tests;
 
+pub use analyzer::{Analyzer, AnalyzerBuilder};
 pub use charfilter::{CharFilter, RegexReplaceCharFilter, UnicodeNormalizeCharFilter};
 pub use dict_builder::DictionaryBuilder;
 pub use dictionary::{Dictionary, DictionaryResource, Matcher, RAMDictionary};

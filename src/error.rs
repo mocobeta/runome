@@ -52,6 +52,16 @@ pub enum RunomeError {
     #[error("CharFilter error: {message}")]
     CharFilterError { message: String },
 
+    // Analyzer errors
+    #[error("Analyzer error: {message}")]
+    AnalyzerError { message: String },
+
+    #[error("Invalid tokenizer configuration: {reason}")]
+    InvalidTokenizerConfig { reason: String },
+
+    #[error("Filter chain error: {message}")]
+    FilterChainError { message: String },
+
     // General IO errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
