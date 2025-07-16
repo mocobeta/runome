@@ -600,9 +600,9 @@ mod tests {
         // Test equivalent to Python TestTokenFilter.test_compound_noun_filter()
         // Input: '浜松町駅から東京モノレールで羽田空港ターミナルへ向かう'
         // Expected: ['浜松町駅', 'から', '東京モノレール', 'で', '羽田空港ターミナル', 'へ', '向かう']
-        
+
         let filter = CompoundNounFilter;
-        
+
         // Create tokens that simulate the tokenization of the Japanese text
         // This represents how the text would be tokenized before the compound noun filter
         let tokens = vec![
@@ -611,7 +611,7 @@ mod tests {
             create_test_token("駅", "名詞,一般", "駅"),
             // "から" - particle, should remain separate
             create_test_token("から", "助詞,格助詞,一般", "から"),
-            // "東京モノレール" - should be compound of 東京 + モノレール  
+            // "東京モノレール" - should be compound of 東京 + モノレール
             create_test_token("東京", "名詞,固有名詞,地域,一般", "東京"),
             create_test_token("モノレール", "名詞,一般", "モノレール"),
             // "で" - particle, should remain separate
@@ -625,21 +625,29 @@ mod tests {
             // "向かう" - verb, should remain separate
             create_test_token("向かう", "動詞,自立", "向かう"),
         ];
-        
+
         let results: Vec<Token> = filter.apply(tokens.into_iter()).collect();
-        
+
         // Extract surface forms for comparison
         let surfaces: Vec<&str> = results.iter().map(|token| token.surface()).collect();
-        
+
         // Validate the expected compound noun formation
-        let expected = vec!["浜松町駅", "から", "東京モノレール", "で", "羽田空港ターミナル", "へ", "向かう"];
+        let expected = vec![
+            "浜松町駅",
+            "から",
+            "東京モノレール",
+            "で",
+            "羽田空港ターミナル",
+            "へ",
+            "向かう",
+        ];
         assert_eq!(surfaces, expected);
-        
+
         // Validate that compound nouns have the correct POS tag
         assert_eq!(results[0].part_of_speech(), "名詞,複合,*,*"); // 浜松町駅
         assert_eq!(results[2].part_of_speech(), "名詞,複合,*,*"); // 東京モノレール
         assert_eq!(results[4].part_of_speech(), "名詞,複合,*,*"); // 羽田空港ターミナル
-        
+
         // Validate that non-noun tokens retain their original POS
         assert_eq!(results[1].part_of_speech(), "助詞,格助詞,一般"); // から
         assert_eq!(results[3].part_of_speech(), "助詞,格助詞,一般"); // で
@@ -650,27 +658,27 @@ mod tests {
     #[test]
     fn test_count_token_filter() {
         // Test equivalent to Python TestTokenFilter.test_count_token_filter()
-        
+
         // Test 1: Basic token counting with surface forms (default)
         // Input: 'すもももももももものうち' - Japanese text meaning "plums and peaches are among peaches"
         let filter = TokenCountFilter::new("surface".to_string(), false).unwrap();
-        
+
         // Create tokens that simulate the tokenization of 'すもももももももものうち'
         let tokens = vec![
-            create_test_token("すもも", "名詞,一般", "すもも"),  // 1 occurrence
-            create_test_token("も", "助詞,係助詞", "も"),        // 1st occurrence
-            create_test_token("もも", "名詞,一般", "もも"),      // 1st occurrence
-            create_test_token("も", "助詞,係助詞", "も"),        // 2nd occurrence  
-            create_test_token("もも", "名詞,一般", "もも"),      // 2nd occurrence
-            create_test_token("の", "助詞,連体化", "の"),        // 1 occurrence
+            create_test_token("すもも", "名詞,一般", "すもも"), // 1 occurrence
+            create_test_token("も", "助詞,係助詞", "も"),       // 1st occurrence
+            create_test_token("もも", "名詞,一般", "もも"),     // 1st occurrence
+            create_test_token("も", "助詞,係助詞", "も"),       // 2nd occurrence
+            create_test_token("もも", "名詞,一般", "もも"),     // 2nd occurrence
+            create_test_token("の", "助詞,連体化", "の"),       // 1 occurrence
             create_test_token("うち", "名詞,非自立,副詞可能", "うち"), // 1 occurrence
         ];
-        
+
         let results: Vec<(String, usize)> = filter.apply(tokens.into_iter()).collect();
-        
+
         // Convert to HashMap for easier validation (since order is not guaranteed when not sorted)
         let counts: std::collections::HashMap<String, usize> = results.into_iter().collect();
-        
+
         // Validate expected counts - matching Python test assertions
         assert_eq!(counts.get("すもも"), Some(&1));
         assert_eq!(counts.get("もも"), Some(&2));
@@ -684,7 +692,7 @@ mod tests {
     fn test_count_token_filter_sorted() {
         // Test 2: Sorted mode testing
         let filter = TokenCountFilter::new("surface".to_string(), true).unwrap();
-        
+
         // Same tokens as above
         let tokens = vec![
             create_test_token("すもも", "名詞,一般", "すもも"),
@@ -695,13 +703,13 @@ mod tests {
             create_test_token("の", "助詞,連体化", "の"),
             create_test_token("うち", "名詞,非自立,副詞可能", "うち"),
         ];
-        
+
         let results: Vec<(String, usize)> = filter.apply(tokens.into_iter()).collect();
-        
+
         // Extract just the counts to validate sorting (frequencies should be [2, 2, 1, 1, 1])
         let frequencies: Vec<usize> = results.iter().map(|(_, count)| *count).collect();
         assert_eq!(frequencies, vec![2, 2, 1, 1, 1]); // Sorted by frequency descending
-        
+
         // Validate that items with count 2 come first
         assert_eq!(results[0].1, 2); // First item has count 2
         assert_eq!(results[1].1, 2); // Second item has count 2
@@ -715,7 +723,7 @@ mod tests {
         // Test 3: Base form attribute testing
         // Input: 'CountFilterで簡単に単語数が数えられます' - Japanese text about counting words
         let filter = TokenCountFilter::new("base_form".to_string(), false).unwrap();
-        
+
         // Create tokens that simulate the tokenization with base forms
         let tokens = vec![
             create_test_token("CountFilter", "名詞,固有名詞", "CountFilter"),
@@ -729,10 +737,10 @@ mod tests {
             create_test_token("られる", "動詞,接尾", "られる"),
             create_test_token("ます", "助動詞", "ます"),
         ];
-        
+
         let results: Vec<(String, usize)> = filter.apply(tokens.into_iter()).collect();
         let counts: std::collections::HashMap<String, usize> = results.into_iter().collect();
-        
+
         // Validate that each base form appears exactly once
         assert_eq!(counts.get("CountFilter"), Some(&1));
         assert_eq!(counts.get("で"), Some(&1));
@@ -752,7 +760,7 @@ mod tests {
         // Test 4: Invalid attribute error testing
         let result = TokenCountFilter::new("foo".to_string(), false);
         assert!(result.is_err());
-        
+
         // Also test that the error message is informative
         if let Err(error) = result {
             let error_msg = format!("{:?}", error);

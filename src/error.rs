@@ -38,6 +38,20 @@ pub enum RunomeError {
     #[error("FST building error: {reason}")]
     FstBuildError { reason: String },
 
+    // CharFilter errors
+    #[error("Invalid regex pattern: {pattern}")]
+    InvalidRegexPattern {
+        pattern: String,
+        #[source]
+        source: regex::Error,
+    },
+
+    #[error("Invalid Unicode normalization form: {form}")]
+    InvalidNormalizationForm { form: String },
+
+    #[error("CharFilter error: {message}")]
+    CharFilterError { message: String },
+
     // General IO errors
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
