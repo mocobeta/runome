@@ -984,4 +984,42 @@ pub mod segmentation_tests {
         assert_eq!(surfaces[12], "です");
         assert_eq!(surfaces[13], "。");
     }
+
+    #[test]
+    fn test_tokenize_large_text() {
+        // Equivalent to Python's TestTokenizer.test_tokenize_large_text()
+        // Tests tokenization of a large text file to ensure the tokenizer can handle
+        // substantial amounts of text without errors
+        use std::fs;
+
+        let tokenizer = Tokenizer::new(None, None);
+        if tokenizer.is_err() {
+            eprintln!("Skipping test: SystemDictionary not available");
+            return;
+        }
+        let tokenizer = tokenizer.unwrap();
+
+        // Read the large text file
+        let text = match fs::read_to_string("tests/text_lemon.txt") {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("Skipping test: Could not read text_lemon.txt: {}", e);
+                return;
+            }
+        };
+
+        // Tokenize the text - this should complete without errors
+        let results: Result<Vec<_>, _> = tokenizer.tokenize(&text, None, None).collect();
+
+        assert!(results.is_ok(), "Tokenization of large text should succeed");
+        let tokens = results.unwrap();
+
+        // Ensure we get a reasonable number of tokens (the exact count may vary
+        // but it should be substantial for a large text)
+        assert!(
+            tokens.len() > 100,
+            "Large text should produce many tokens, got {}",
+            tokens.len()
+        );
+    }
 }

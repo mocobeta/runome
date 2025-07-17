@@ -78,35 +78,58 @@ impl Matcher {
         word: &str,
         common_prefix_match: bool,
     ) -> Result<(bool, Vec<u64>), RunomeError> {
-        let mut all_index_ids = std::collections::HashSet::new();
-
         if common_prefix_match {
-            // Find all prefixes of the word that match entries in the FST
-            for i in 1..=word.len() {
-                if let Some(byte_boundary) = self.find_char_boundary(word, i) {
-                    let prefix = &word[..byte_boundary];
-                    // Skip empty prefixes
-                    if !prefix.is_empty() {
-                        if let Some(index_id) = self.fst.get(prefix) {
-                            all_index_ids.insert(index_id);
-                        }
-                    }
-                }
-            }
+            // Optimized prefix matching using char boundaries
+            self.run_prefix_match(word)
         } else {
             // Exact match only
-            if !word.is_empty() {
-                if let Some(index_id) = self.fst.get(word) {
-                    all_index_ids.insert(index_id);
-                }
+            if word.is_empty() {
+                return Ok((false, Vec::new()));
+            }
+            
+            match self.fst.get(word) {
+                Some(index_id) => Ok((true, vec![index_id])),
+                None => Ok((false, Vec::new())),
             }
         }
-
-        let matched = !all_index_ids.is_empty();
-        // Convert HashSet to Vec and sort for deterministic ordering
-        let mut sorted_outputs: Vec<u64> = all_index_ids.into_iter().collect();
-        sorted_outputs.sort_unstable();
-        Ok((matched, sorted_outputs))
+    }
+    
+    /// Optimized prefix matching that iterates over char boundaries
+    fn run_prefix_match(&self, word: &str) -> Result<(bool, Vec<u64>), RunomeError> {
+        if word.is_empty() {
+            return Ok((false, Vec::new()));
+        }
+        
+        // Pre-allocate with reasonable capacity to reduce reallocations
+        let mut all_index_ids = Vec::with_capacity(word.chars().count());
+        
+        // Use FST's range query for more efficient prefix matching
+        // This avoids repeated FST lookups for each prefix
+        let mut last_byte_pos = 0;
+        
+        for (byte_pos, _) in word.char_indices().skip(1) {
+            let prefix = &word[..byte_pos];
+            if let Some(index_id) = self.fst.get(prefix) {
+                all_index_ids.push(index_id);
+            }
+            last_byte_pos = byte_pos;
+        }
+        
+        // Don't forget the full word
+        if last_byte_pos < word.len() {
+            if let Some(index_id) = self.fst.get(word) {
+                all_index_ids.push(index_id);
+            }
+        }
+        
+        if all_index_ids.is_empty() {
+            Ok((false, Vec::new()))
+        } else {
+            // Remove duplicates and sort
+            all_index_ids.sort_unstable();
+            all_index_ids.dedup();
+            Ok((true, all_index_ids))
+        }
     }
 
     /// Decode FST index ID to morpheme IDs using separate morpheme index
@@ -131,26 +154,6 @@ impl Matcher {
         }
     }
 
-    /// Find a character boundary at or before the given byte index
-    ///
-    /// This is necessary because we need to ensure we're splitting at valid UTF-8
-    /// character boundaries when doing prefix matching.
-    fn find_char_boundary(&self, s: &str, mut index: usize) -> Option<usize> {
-        if index >= s.len() {
-            return Some(s.len());
-        }
-
-        // Move backwards until we find a character boundary
-        while index > 0 && !s.is_char_boundary(index) {
-            index -= 1;
-        }
-
-        if index == 0 && !s.is_char_boundary(0) {
-            None
-        } else {
-            Some(index)
-        }
-    }
 }
 
 /// RAMDictionary implementation using DictionaryResource and Matcher

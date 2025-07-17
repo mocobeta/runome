@@ -312,16 +312,24 @@ impl Tokenizer {
             return Ok((Vec::new(), 0));
         }
 
-        // Determine chunk size, respecting splitting logic
+        // Determine chunk size, respecting splitting logic and character boundaries
         let mut chunk_end = text.len();
-        for pos in CHUNK_SIZE..std::cmp::min(text.len(), MAX_CHUNK_SIZE) {
-            if self.should_split(text, pos) {
-                chunk_end = pos;
+        let mut char_count = 0;
+        
+        for (byte_pos, _) in text.char_indices() {
+            char_count += 1;
+            
+            if char_count >= CHUNK_SIZE && char_count < MAX_CHUNK_SIZE {
+                if self.should_split_at_char_pos(text, byte_pos, char_count) {
+                    chunk_end = byte_pos;
+                    break;
+                }
+            }
+            
+            if char_count >= MAX_CHUNK_SIZE {
+                chunk_end = byte_pos;
                 break;
             }
-        }
-        if chunk_end > MAX_CHUNK_SIZE {
-            chunk_end = MAX_CHUNK_SIZE;
         }
 
         // Process only the chunk we determined
@@ -641,12 +649,13 @@ impl Tokenizer {
         Ok(tokens)
     }
 
-    /// Determine if text should be split at the given position
-    /// Implements Python's chunking strategy
-    fn should_split(&self, text: &str, pos: usize) -> bool {
-        pos >= text.len()
-            || pos >= MAX_CHUNK_SIZE
-            || (pos >= CHUNK_SIZE && self.is_splittable(&text[..pos]))
+    
+    /// Determine if text should be split at the given character position
+    /// This version works with character counts instead of byte positions
+    fn should_split_at_char_pos(&self, text: &str, byte_pos: usize, char_count: usize) -> bool {
+        byte_pos >= text.len()
+            || char_count >= MAX_CHUNK_SIZE
+            || (char_count >= CHUNK_SIZE && byte_pos <= text.len() && self.is_splittable(&text[..byte_pos]))
     }
 
     /// Check if text can be split at the end (at punctuation or newlines)
@@ -850,14 +859,14 @@ mod tests {
 
         let text = "短いテキスト";
 
-        // Should not split short text
-        assert!(!tokenizer.should_split(text, 5));
+        // Should not split short text (character count < CHUNK_SIZE)
+        assert!(!tokenizer.should_split_at_char_pos(text, 5, 2));
 
         // Should split at end of text
-        assert!(tokenizer.should_split(text, text.len()));
+        assert!(tokenizer.should_split_at_char_pos(text, text.len(), 6));
 
-        // Test with large position (would exceed MAX_CHUNK_SIZE)
-        assert!(tokenizer.should_split(text, MAX_CHUNK_SIZE + 1));
+        // Test with large character count (would exceed MAX_CHUNK_SIZE)
+        assert!(tokenizer.should_split_at_char_pos(text, 100, MAX_CHUNK_SIZE + 1));
     }
 
     #[test]
