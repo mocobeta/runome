@@ -26,7 +26,7 @@ fn main() {
 
     if bench_mode {
         // Benchmark mode - run multiple iterations for profiling
-        let iterations = 1;
+        let iterations = 10;
         let mut total_tokens = 0;
 
         eprintln!("Running benchmark with {} iterations...", iterations);

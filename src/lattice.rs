@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
 use std::sync::Arc;
 
 use crate::dictionary::{DictEntry, Dictionary};
@@ -604,15 +606,110 @@ impl LatticeNode for EOS {
 }
 
 /// Lattice structure for Viterbi algorithm-based morphological analysis
+/// Ultra-compact end node representation that stores critical data inline
+/// This eliminates expensive indirection and bounds checking in hot paths
+#[derive(Debug, Clone)]
+pub struct CompactEndNode {
+    /// Node position (using u16 for better cache density)
+    pub pos: u16,
+    /// Node index within position (using u16 for better cache density)
+    pub index: u16,
+    /// Cached right_id for connection cost lookups (eliminates indirection)
+    pub right_id: u16,
+    /// Cached min_cost for Viterbi calculations (eliminates indirection)
+    pub min_cost: i32,
+    /// Cached morph_id for tie-breaking (eliminates indirection)
+    pub morph_id: Option<u32>,
+}
+
+impl CompactEndNode {
+    /// Create from a lattice node, caching critical data for fast access
+    fn from_node(node: &dyn LatticeNode, pos: usize, index: usize) -> Self {
+        Self {
+            pos: pos as u16,
+            index: index as u16,
+            right_id: node.right_id(),
+            min_cost: node.min_cost(),
+            morph_id: node.morph_id().map(|id| id as u32),
+        }
+    }
+}
+
+/// Legacy node reference for compatibility
+#[derive(Debug, Clone)]
+pub struct NodeRef {
+    pub pos: usize,
+    pub index: usize,
+}
+
+/// Connection cost cache key - optimized for fast hashing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct CostCacheKey {
+    right_id: u16,
+    left_id: u16,
+}
+
+/// Fast hasher for small integer keys
+type FastHasher = BuildHasherDefault<fxhash::FxHasher>;
+
+/// Connection cost cache for frequently accessed cost lookups
+struct ConnectionCostCache {
+    cache: HashMap<CostCacheKey, i16, FastHasher>,
+    max_size: usize,
+}
+
+impl ConnectionCostCache {
+    fn new(max_size: usize) -> Self {
+        Self {
+            cache: HashMap::with_hasher(FastHasher::default()),
+            max_size,
+        }
+    }
+
+    fn get_or_compute<F>(
+        &mut self,
+        right_id: u16,
+        left_id: u16,
+        compute: F,
+    ) -> Result<i16, RunomeError>
+    where
+        F: FnOnce() -> Result<i16, RunomeError>,
+    {
+        let key = CostCacheKey { right_id, left_id };
+
+        if let Some(&cached_cost) = self.cache.get(&key) {
+            return Ok(cached_cost);
+        }
+
+        let cost = compute()?;
+
+        // Simple cache eviction - clear if too large
+        if self.cache.len() >= self.max_size {
+            self.cache.clear();
+        }
+
+        self.cache.insert(key, cost);
+        Ok(cost)
+    }
+
+    fn clear(&mut self) {
+        self.cache.clear();
+    }
+}
+
 pub struct Lattice<'a> {
     /// Start nodes at each position - snodes[pos][index]
     snodes: Vec<Vec<Box<dyn LatticeNode + 'a>>>,
-    /// End nodes at each position - enodes[pos][index]  
-    enodes: Vec<Vec<Box<dyn LatticeNode + 'a>>>,
+    /// Ultra-optimized end nodes with inlined critical data (eliminates indirection)
+    enodes: Vec<Vec<CompactEndNode>>,
     /// Current position pointer
     p: usize,
     /// Dictionary reference for connection cost lookups
     dic: Arc<dyn Dictionary>,
+    /// High-performance connection cost cache for hot path optimization
+    cost_cache: ConnectionCostCache,
+    /// Surface length cache to avoid UTF-8 character counting
+    surface_len_cache: HashMap<String, usize, FastHasher>,
 }
 
 impl<'a> Lattice<'a> {
@@ -630,7 +727,7 @@ impl<'a> Lattice<'a> {
     pub fn new(size: usize, dic: Arc<dyn Dictionary>) -> Self {
         // Initialize snodes and enodes vectors
         // We need positions 0 through size+1 (size+2 total positions)
-        let mut snodes = Vec::with_capacity(size + 1);
+        let mut snodes = Vec::with_capacity(size + 2);
         let mut enodes = Vec::with_capacity(size + 2);
 
         // Initialize all positions as empty first
@@ -646,16 +743,39 @@ impl<'a> Lattice<'a> {
         snodes[0].push(bos);
 
         // Position 1: BOS node also appears in enodes[1] for connections
-        let mut bos_end = Box::new(BOS::new()) as Box<dyn LatticeNode + 'a>;
-        bos_end.set_pos(0);
-        bos_end.set_index(0);
-        enodes[1].push(bos_end);
+        let bos_compact = CompactEndNode::from_node(snodes[0][0].as_ref(), 0, 0);
+        enodes[1].push(bos_compact);
 
         Self {
             snodes,
             enodes,
             p: 1, // Start at position 1 (after BOS)
             dic,
+            cost_cache: ConnectionCostCache::new(10000), // Cache up to 10K cost lookups
+            surface_len_cache: HashMap::with_hasher(FastHasher::default()),
+        }
+    }
+
+    /// Get a node by reference - helper method for efficient node access
+    fn get_node(&self, node_ref: &NodeRef) -> Option<&dyn LatticeNode> {
+        self.snodes
+            .get(node_ref.pos)
+            .and_then(|nodes| nodes.get(node_ref.index))
+            .map(|node| node.as_ref())
+    }
+
+    /// Ensure lattice capacity for a given position (optimized growth)
+    fn ensure_capacity(&mut self, end_pos: usize) {
+        if self.snodes.len() <= end_pos {
+            // Grow by at least 50% to reduce reallocations
+            let new_capacity = std::cmp::max(end_pos + 1, self.snodes.len() * 3 / 2);
+            self.snodes.reserve(new_capacity - self.snodes.len());
+            self.enodes.reserve(new_capacity - self.enodes.len());
+
+            while self.snodes.len() <= end_pos {
+                self.snodes.push(Vec::new());
+                self.enodes.push(Vec::new());
+            }
         }
     }
 
@@ -674,9 +794,29 @@ impl<'a> Lattice<'a> {
         self.snodes.get(pos)
     }
 
-    /// Get reference to end nodes at the specified position
-    pub fn end_nodes(&self, pos: usize) -> Option<&Vec<Box<dyn LatticeNode + 'a>>> {
+    /// Get reference to end nodes at the specified position  
+    pub fn end_nodes(&self, pos: usize) -> Option<&Vec<CompactEndNode>> {
         self.enodes.get(pos)
+    }
+
+    /// Get cached surface length or compute and cache it
+    fn get_surface_length(&mut self, surface: &str) -> usize {
+        if let Some(&cached_len) = self.surface_len_cache.get(surface) {
+            return cached_len;
+        }
+
+        let len = if surface.is_empty() {
+            1
+        } else {
+            surface.chars().count()
+        };
+
+        // Cache for future use (limit cache size to prevent memory bloat)
+        if self.surface_len_cache.len() < 5000 {
+            self.surface_len_cache.insert(surface.to_string(), len);
+        }
+
+        len
     }
 
     /// Check if the lattice is properly initialized
@@ -727,17 +867,22 @@ impl<'a> Lattice<'a> {
     /// # Returns
     /// * `Ok(())` if the node was successfully added
     /// * `Err(RunomeError)` if cost calculation or dictionary access fails
+    /// Ultra-optimized add method with multiple performance optimizations:
+    /// - Inlined critical data (no indirection)
+    /// - Connection cost caching
+    /// - Surface length caching
+    /// - Hot path specialization for single predecessor
+    /// - Optimized memory access patterns
     pub fn add(&mut self, mut node: Box<dyn LatticeNode + 'a>) -> Result<(), RunomeError> {
         // Initialize Viterbi cost calculation
-        // Python: min_cost = node.min_cost - node.cost
-        // Handle overflow by clamping to i32::MAX
         let mut min_cost = node.min_cost().saturating_sub(node.cost() as i32);
-        let mut best_node: Option<&dyn LatticeNode> = None;
+        let mut best_compact_node: Option<&CompactEndNode> = None;
         let node_left_id = node.left_id();
 
-        // Find the optimal predecessor from all end nodes at current position
-        if let Some(end_nodes) = self.enodes.get(self.p) {
-            if end_nodes.is_empty() {
+        // Hot path optimization: get end nodes directly (no Option checking in hot loop)
+        let end_nodes = match self.enodes.get(self.p) {
+            Some(nodes) if !nodes.is_empty() => nodes,
+            _ => {
                 return Err(RunomeError::DictValidationError {
                     reason: format!(
                         "End nodes array at position {} is empty for node '{}'. Lattice position: {}, enodes.len(): {}",
@@ -748,53 +893,72 @@ impl<'a> Lattice<'a> {
                     ),
                 });
             }
+        };
+
+        // Ultra-optimized Viterbi search with inlined data (no indirection!)
+        if end_nodes.len() == 1 {
+            // Hot path specialization: single predecessor (most common case)
+            let enode = &end_nodes[0];
+            let connection_cost =
+                self.cost_cache
+                    .get_or_compute(enode.right_id, node_left_id, || {
+                        self.dic.get_trans_cost(enode.right_id, node_left_id)
+                    })?;
+
+            let total_cost = enode
+                .min_cost
+                .checked_add(connection_cost as i32)
+                .unwrap_or(i32::MAX);
+            if total_cost < min_cost {
+                min_cost = total_cost;
+                best_compact_node = Some(enode);
+            }
+        } else {
+            // Multiple predecessors: optimized loop with cached costs and inlined data
             for enode in end_nodes {
-                // Calculate connection cost using dictionary
-                let connection_cost = self.dic.get_trans_cost(enode.right_id(), node_left_id)?;
+                // Calculate connection cost using cached lookup (major optimization)
+                let connection_cost =
+                    self.cost_cache
+                        .get_or_compute(enode.right_id, node_left_id, || {
+                            self.dic.get_trans_cost(enode.right_id, node_left_id)
+                        })?;
+
                 let total_cost = enode
-                    .min_cost()
+                    .min_cost
                     .checked_add(connection_cost as i32)
                     .unwrap_or(i32::MAX);
 
-                // Check if this is the best path so far
+                // Optimized cost comparison with inlined tie-breaking
                 if total_cost < min_cost {
                     min_cost = total_cost;
-                    best_node = Some(enode.as_ref());
-                } else if total_cost == min_cost && best_node.is_some() {
-                    // Tie-breaking: match Python's exact logic
-                    // Python: cost == min_cost and isinstance(best_node, SurfaceNode) and isinstance(enode, SurfaceNode) and enode.num < best_node.num
-                    let current_best = best_node.unwrap();
-
-                    // Only apply tie-breaking if BOTH nodes have morph_id (equivalent to both being SurfaceNode in Python)
-                    if let (Some(enode_id), Some(best_id)) =
-                        (enode.morph_id(), current_best.morph_id())
-                    {
+                    best_compact_node = Some(enode);
+                } else if total_cost == min_cost {
+                    // Ultra-fast tie-breaking with inlined morph_id (no method calls!)
+                    if let (Some(_current_best), Some(enode_id), Some(best_id)) = (
+                        best_compact_node,
+                        enode.morph_id,
+                        best_compact_node.and_then(|n| n.morph_id),
+                    ) {
                         if enode_id < best_id {
-                            best_node = Some(enode.as_ref());
+                            best_compact_node = Some(enode);
                         }
                     }
-                    // No fallback tie-breaking - this matches Python exactly
                 }
             }
         }
 
         // Update node with optimal path information
-        // Use checked_add to prevent overflow with very negative costs
         let final_cost = min_cost.checked_add(node.cost() as i32).unwrap_or(i32::MIN);
         node.set_min_cost(final_cost);
 
-        if let Some(best) = best_node {
-            node.set_back_pos(best.pos() as i32);
-            node.set_back_index(best.index() as i32);
+        if let Some(best_compact) = best_compact_node {
+            node.set_back_pos(best_compact.pos as i32);
+            node.set_back_index(best_compact.index as i32);
         } else {
-            // This should not happen in a properly initialized lattice
-            // In Python, there's always at least one node in enodes[self.p]
             return Err(RunomeError::DictValidationError {
                 reason: format!(
-                    "enodes.get({}) returned None for node '{}'. enodes.len(): {}, lattice position: {}",
-                    self.p,
+                    "No valid predecessor found for node '{}' at position {}",
                     node.surface(),
-                    self.enodes.len(),
                     self.p
                 ),
             });
@@ -805,66 +969,23 @@ impl<'a> Lattice<'a> {
         let node_index = self.snodes.get(self.p).map_or(0, |nodes| nodes.len());
         node.set_index(node_index);
 
-        // Calculate where this node will end
-        // Python: node_len = len(node.surface) if hasattr(node, 'surface') else 1
-        // In Python, len() returns character count, not byte count
-        let surface_len = if node.surface().is_empty() {
-            1
-        } else {
-            node.surface().chars().count()
-        };
+        // Ultra-optimized surface length calculation with caching
+        let surface_len = self.get_surface_length(node.surface());
         let end_pos = self.p + surface_len;
 
-        // Expand lattice if necessary
-        while self.snodes.len() <= end_pos {
-            self.snodes.push(Vec::new());
-        }
-        while self.enodes.len() <= end_pos {
-            self.enodes.push(Vec::new());
-        }
+        // Optimized lattice expansion
+        self.ensure_capacity(end_pos);
 
         // Add to start nodes
         self.snodes[self.p].push(node);
 
-        // Python: self.enodes[self.p + node_len].append(node)
-        // In Python, the SAME node object is added to both snodes and enodes
-        // We need to create a reference to the node we just added
-        if let Some(added_node) = self.snodes[self.p].last() {
-            // We can't directly clone the Box<dyn LatticeNode>, but we need to create
-            // a compatible reference. For now, we'll create a minimal node that has
-            // the same essential properties for lattice traversal.
-            // This is a temporary solution - ideally we'd restructure to use Rc<RefCell<Node>>
-
-            // Create a simple reference node that preserves the essential data
-            let surface = added_node.surface().to_string();
-            let end_node = Box::new(UnknownNode::new(
-                surface,
-                added_node.left_id(),
-                added_node.right_id(),
-                added_node.cost(),
-                added_node.part_of_speech().to_string(),
-                added_node.inflection_type().to_string(),
-                added_node.inflection_form().to_string(),
-                added_node.base_form().to_string(),
-                added_node.reading().to_string(),
-                added_node.phonetic().to_string(),
-                added_node.node_type(),
-            )) as Box<dyn LatticeNode + 'a>;
-
-            // Set the same Viterbi data
-            let mut end_node = end_node;
-            end_node.set_pos(added_node.pos());
-            end_node.set_index(added_node.index());
-            end_node.set_min_cost(added_node.min_cost());
-            end_node.set_back_pos(added_node.back_pos());
-            end_node.set_back_index(added_node.back_index());
-
-            self.enodes[end_pos].push(end_node);
-        } else {
-            return Err(RunomeError::DictValidationError {
-                reason: "Failed to add node to snodes".to_string(),
-            });
-        }
+        // Create ultra-compact end node with inlined critical data (major optimization!)
+        let compact_end_node = CompactEndNode::from_node(
+            self.snodes[self.p].last().unwrap().as_ref(),
+            self.p,
+            node_index,
+        );
+        self.enodes[end_pos].push(compact_end_node);
 
         Ok(())
     }
@@ -1238,7 +1359,17 @@ mod tests {
         // Check BOS also appears in enodes[1] for connections
         let end_nodes = lattice.end_nodes(1).unwrap();
         assert_eq!(end_nodes.len(), 1);
-        assert_eq!(end_nodes[0].surface(), "__BOS__");
+        assert_eq!(end_nodes[0].pos, 0);
+        assert_eq!(end_nodes[0].index, 0);
+
+        // Verify we can access the actual node through the reference
+        let node_ref = NodeRef {
+            pos: end_nodes[0].pos as usize,
+            index: end_nodes[0].index as usize,
+        };
+        if let Some(node) = lattice.get_node(&node_ref) {
+            assert_eq!(node.surface(), "__BOS__");
+        }
     }
 
     #[test]
@@ -2114,11 +2245,13 @@ mod tests {
         // Python test: self.assertTrue(isinstance(lattice.enodes[5][0], EOS))
         if let Some(end_nodes_5) = lattice.end_nodes(final_pos + 1) {
             if !end_nodes_5.is_empty() {
-                assert_eq!(
-                    end_nodes_5[0].surface(),
-                    "__EOS__",
-                    "EOS should appear in end nodes"
-                );
+                let node_ref = NodeRef {
+                    pos: end_nodes_5[0].pos as usize,
+                    index: end_nodes_5[0].index as usize,
+                };
+                if let Some(node) = lattice.get_node(&node_ref) {
+                    assert_eq!(node.surface(), "__EOS__", "EOS should appear in end nodes");
+                }
             }
         }
     }

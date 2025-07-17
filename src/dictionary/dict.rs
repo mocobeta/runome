@@ -86,27 +86,27 @@ impl Matcher {
             if word.is_empty() {
                 return Ok((false, Vec::new()));
             }
-            
+
             match self.fst.get(word) {
                 Some(index_id) => Ok((true, vec![index_id])),
                 None => Ok((false, Vec::new())),
             }
         }
     }
-    
+
     /// Optimized prefix matching that iterates over char boundaries
     fn run_prefix_match(&self, word: &str) -> Result<(bool, Vec<u64>), RunomeError> {
         if word.is_empty() {
             return Ok((false, Vec::new()));
         }
-        
+
         // Pre-allocate with reasonable capacity to reduce reallocations
         let mut all_index_ids = Vec::with_capacity(word.chars().count());
-        
+
         // Use FST's range query for more efficient prefix matching
         // This avoids repeated FST lookups for each prefix
         let mut last_byte_pos = 0;
-        
+
         for (byte_pos, _) in word.char_indices().skip(1) {
             let prefix = &word[..byte_pos];
             if let Some(index_id) = self.fst.get(prefix) {
@@ -114,14 +114,14 @@ impl Matcher {
             }
             last_byte_pos = byte_pos;
         }
-        
+
         // Don't forget the full word
         if last_byte_pos < word.len() {
             if let Some(index_id) = self.fst.get(word) {
                 all_index_ids.push(index_id);
             }
         }
-        
+
         if all_index_ids.is_empty() {
             Ok((false, Vec::new()))
         } else {
@@ -153,7 +153,6 @@ impl Matcher {
             Vec::new()
         }
     }
-
 }
 
 /// RAMDictionary implementation using DictionaryResource and Matcher

@@ -1,4 +1,4 @@
-use runome::dictionary::{dict::Matcher, loader, DictionaryResource};
+use runome::dictionary::{DictionaryResource, dict::Matcher, loader};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -39,11 +39,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (word, desc) in &test_words {
         let iterations = 100_000;
         let start = Instant::now();
-        
+
         for _ in 0..iterations {
             let _ = matcher.run(word, false);
         }
-        
+
         let duration = start.elapsed();
         let per_call = duration / iterations;
         println!(
@@ -61,11 +61,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (word, desc) in &test_words {
         let iterations = 100_000;
         let start = Instant::now();
-        
+
         for _ in 0..iterations {
             let _ = matcher.run(word, true);
         }
-        
+
         let duration = start.elapsed();
         let per_call = duration / iterations;
         println!(
@@ -80,14 +80,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Profile allocation-heavy case
     println!("\n=== Allocation Profile (prefix match on long string) ===");
-    let long_word = "これは非常に長い日本語の文章でマッチャーのパフォーマンスをテストするためのものです";
+    let long_word =
+        "これは非常に長い日本語の文章でマッチャーのパフォーマンスをテストするためのものです";
     let iterations = 10_000;
     let start = Instant::now();
-    
+
     for _ in 0..iterations {
         let _ = matcher.run(long_word, true);
     }
-    
+
     let duration = start.elapsed();
     let per_call = duration / iterations;
     println!(
