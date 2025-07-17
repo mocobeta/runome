@@ -111,6 +111,8 @@ impl Matcher {
             let prefix = &word[..byte_pos];
             if let Some(index_id) = self.fst.get(prefix) {
                 all_index_ids.push(index_id);
+            } else {
+                break; // No more prefixes match, exit early
             }
             last_byte_pos = byte_pos;
         }
