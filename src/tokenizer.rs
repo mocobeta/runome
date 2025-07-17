@@ -315,17 +315,17 @@ impl Tokenizer {
         // Determine chunk size, respecting splitting logic and character boundaries
         let mut chunk_end = text.len();
         let mut char_count = 0;
-        
+
         for (byte_pos, _) in text.char_indices() {
             char_count += 1;
-            
+
             if char_count >= CHUNK_SIZE && char_count < MAX_CHUNK_SIZE {
                 if self.should_split_at_char_pos(text, byte_pos, char_count) {
                     chunk_end = byte_pos;
                     break;
                 }
             }
-            
+
             if char_count >= MAX_CHUNK_SIZE {
                 chunk_end = byte_pos;
                 break;
@@ -382,7 +382,7 @@ impl Tokenizer {
             let remaining_text = &text[pos..];
             let char_indices: Vec<_> = remaining_text.char_indices().collect();
 
-            for char_len in 1..=std::cmp::min(char_indices.len(), 50) {
+            for char_len in 1..=std::cmp::min(char_indices.len(), 15) {
                 // Max word length limit
                 // Get substring by character count, not byte count
                 let end_byte = if char_len < char_indices.len() {
@@ -649,13 +649,14 @@ impl Tokenizer {
         Ok(tokens)
     }
 
-    
     /// Determine if text should be split at the given character position
     /// This version works with character counts instead of byte positions
     fn should_split_at_char_pos(&self, text: &str, byte_pos: usize, char_count: usize) -> bool {
         byte_pos >= text.len()
             || char_count >= MAX_CHUNK_SIZE
-            || (char_count >= CHUNK_SIZE && byte_pos <= text.len() && self.is_splittable(&text[..byte_pos]))
+            || (char_count >= CHUNK_SIZE
+                && byte_pos <= text.len()
+                && self.is_splittable(&text[..byte_pos]))
     }
 
     /// Check if text can be split at the end (at punctuation or newlines)
