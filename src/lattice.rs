@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::dictionary::{DictEntry, Dictionary};
 use crate::error::RunomeError;
+use crate::intern;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NodeType {
@@ -267,6 +268,78 @@ impl UnknownNode {
             index: 0,
         }
     }
+
+    /// Create an UnknownNode optimized for dictionary entries
+    /// Uses string interning to reduce allocations for morphological data
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_dict_entry(
+        surface: &str,
+        left_id: u16,
+        right_id: u16,
+        cost: i16,
+        part_of_speech: &str,
+        inflection_type: &str,
+        inflection_form: &str,
+        base_form: &str,
+        reading: &str,
+        phonetic: &str,
+        node_type: NodeType,
+    ) -> Self {
+        Self {
+            surface: intern::intern_or_clone(surface),
+            left_id,
+            right_id,
+            cost,
+            part_of_speech: intern::intern_or_clone(part_of_speech),
+            inflection_type: intern::intern_or_clone(inflection_type),
+            inflection_form: intern::intern_or_clone(inflection_form),
+            base_form: intern::intern_or_clone(base_form),
+            reading: intern::intern_or_clone(reading),
+            phonetic: intern::intern_or_clone(phonetic),
+            node_type,
+            min_cost: i32::MAX,
+            back_pos: -1,
+            back_index: -1,
+            pos: 0,
+            index: 0,
+        }
+    }
+
+    /// Create an UnknownNode for true unknown words with default morphological values
+    /// This is highly optimized for the common case where most fields are "*"
+    pub fn for_unknown_word(
+        surface: String,
+        left_id: u16,
+        right_id: u16,
+        cost: i16,
+        part_of_speech: &str,
+        base_form: Option<&str>,
+        node_type: NodeType,
+    ) -> Self {
+        let base_form_string = match base_form {
+            Some(bf) => intern::intern_or_clone(bf),
+            None => intern::ASTERISK.to_string(),
+        };
+
+        Self {
+            surface,
+            left_id,
+            right_id,
+            cost,
+            part_of_speech: intern::intern_or_clone(part_of_speech),
+            inflection_type: intern::ASTERISK.to_string(),
+            inflection_form: intern::ASTERISK.to_string(),
+            base_form: base_form_string,
+            reading: intern::ASTERISK.to_string(),
+            phonetic: intern::ASTERISK.to_string(),
+            node_type,
+            min_cost: i32::MAX,
+            back_pos: -1,
+            back_index: -1,
+            pos: 0,
+            index: 0,
+        }
+    }
 }
 
 impl LatticeNode for UnknownNode {
@@ -395,7 +468,7 @@ impl Default for BOS {
 
 impl LatticeNode for BOS {
     fn surface(&self) -> &str {
-        "__BOS__"
+        intern::BOS_SURFACE
     }
 
     fn left_id(&self) -> u16 {
@@ -463,27 +536,27 @@ impl LatticeNode for BOS {
     }
 
     fn part_of_speech(&self) -> &str {
-        "__BOS__" // BOS doesn't have a part of speech
+        intern::BOS_SURFACE // BOS doesn't have a part of speech
     }
 
     fn inflection_type(&self) -> &str {
-        ""
+        intern::EMPTY
     }
 
     fn inflection_form(&self) -> &str {
-        ""
+        intern::EMPTY
     }
 
     fn base_form(&self) -> &str {
-        "__BOS__" // BOS doesn't have a base form
+        intern::BOS_SURFACE // BOS doesn't have a base form
     }
 
     fn reading(&self) -> &str {
-        ""
+        intern::EMPTY
     }
 
     fn phonetic(&self) -> &str {
-        ""
+        intern::EMPTY
     }
 }
 
@@ -513,7 +586,7 @@ impl EOS {
 
 impl LatticeNode for EOS {
     fn surface(&self) -> &str {
-        "__EOS__"
+        intern::EOS_SURFACE
     }
 
     fn left_id(&self) -> u16 {
@@ -581,27 +654,27 @@ impl LatticeNode for EOS {
     }
 
     fn part_of_speech(&self) -> &str {
-        "__EOS__" // EOS doesn't have a part of speech
+        intern::EOS_SURFACE // EOS doesn't have a part of speech
     }
 
     fn inflection_type(&self) -> &str {
-        ""
+        intern::EMPTY
     }
 
     fn inflection_form(&self) -> &str {
-        ""
+        intern::EMPTY
     }
 
     fn base_form(&self) -> &str {
-        "__EOS__" // EOS doesn't have a base form
+        intern::EOS_SURFACE // EOS doesn't have a base form
     }
 
     fn reading(&self) -> &str {
-        ""
+        intern::EMPTY
     }
 
     fn phonetic(&self) -> &str {
-        ""
+        intern::EMPTY
     }
 }
 
@@ -813,7 +886,7 @@ impl<'a> Lattice<'a> {
 
         // Cache for future use (limit cache size to prevent memory bloat)
         if self.surface_len_cache.len() < 5000 {
-            self.surface_len_cache.insert(surface.to_string(), len);
+            self.surface_len_cache.insert(intern::intern_or_clone(surface), len);
         }
 
         len

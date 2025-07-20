@@ -3,6 +3,7 @@ pub mod charfilter;
 pub mod dict_builder;
 pub mod dictionary;
 pub mod error;
+pub mod intern;
 pub mod lattice;
 pub mod tokenfilter;
 pub mod tokenizer;

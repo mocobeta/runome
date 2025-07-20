@@ -1,8 +1,10 @@
+use std::borrow::Cow;
 use std::fmt;
 use std::sync::Arc;
 
 use crate::dictionary::{Dictionary, SystemDictionary, UserDictionary};
 use crate::error::RunomeError;
+use crate::intern;
 use crate::lattice::{Lattice, LatticeNode, NodeType};
 
 /// Constants matching Python Janome tokenizer
@@ -11,55 +13,59 @@ const CHUNK_SIZE: usize = 500;
 
 /// Token struct containing all morphological information
 /// Mirrors the Python Token class with complete compatibility
+/// Uses Cow<str> for zero-copy optimization when strings can reference static/interned data
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
-    surface: String,
-    part_of_speech: String,
-    infl_type: String,
-    infl_form: String,
-    base_form: String,
-    reading: String,
-    phonetic: String,
+    surface: Cow<'static, str>,
+    part_of_speech: Cow<'static, str>,
+    infl_type: Cow<'static, str>,
+    infl_form: Cow<'static, str>,
+    base_form: Cow<'static, str>,
+    reading: Cow<'static, str>,
+    phonetic: Cow<'static, str>,
     node_type: NodeType,
 }
 
 impl Token {
     /// Create a Token from a dictionary node with full morphological information
+    /// Uses zero-copy optimization for interned strings
     pub fn from_dict_node(node: &dyn LatticeNode) -> Self {
         Self {
-            surface: node.surface().to_string(),
-            part_of_speech: node.part_of_speech().to_string(),
-            infl_type: node.inflection_type().to_string(),
-            infl_form: node.inflection_form().to_string(),
-            base_form: node.base_form().to_string(),
-            reading: node.reading().to_string(),
-            phonetic: node.phonetic().to_string(),
+            surface: intern::intern_or_cow(node.surface()),
+            part_of_speech: intern::intern_or_cow(node.part_of_speech()),
+            infl_type: intern::intern_or_cow(node.inflection_type()),
+            infl_form: intern::intern_or_cow(node.inflection_form()),
+            base_form: intern::intern_or_cow(node.base_form()),
+            reading: intern::intern_or_cow(node.reading()),
+            phonetic: intern::intern_or_cow(node.phonetic()),
             node_type: node.node_type(),
         }
     }
 
     /// Create a Token from an unknown word node
+    /// Uses zero-copy optimization for interned strings (especially asterisks)
     pub fn from_unknown_node(node: &dyn LatticeNode, baseform_unk: bool) -> Self {
         let base_form = if baseform_unk {
-            node.surface().to_string()
+            intern::intern_or_cow(node.surface())
         } else {
-            "*".to_string()
+            Cow::Borrowed(intern::ASTERISK)
         };
 
         Self {
-            surface: node.surface().to_string(),
-            part_of_speech: node.part_of_speech().to_string(),
-            infl_type: "*".to_string(),
-            infl_form: "*".to_string(),
+            surface: intern::intern_or_cow(node.surface()),
+            part_of_speech: intern::intern_or_cow(node.part_of_speech()),
+            infl_type: Cow::Borrowed(intern::ASTERISK),
+            infl_form: Cow::Borrowed(intern::ASTERISK),
             base_form,
-            reading: node.reading().to_string(),
-            phonetic: node.phonetic().to_string(),
+            reading: intern::intern_or_cow(node.reading()),
+            phonetic: intern::intern_or_cow(node.phonetic()),
             node_type: node.node_type(),
         }
     }
 
     /// Create a Token with explicit field values
     /// Used by TokenFilters to create modified tokens
+    /// Converts String parameters to Cow<str> with interning optimization
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         surface: String,
@@ -72,13 +78,13 @@ impl Token {
         node_type: NodeType,
     ) -> Self {
         Self {
-            surface,
-            part_of_speech,
-            infl_type,
-            infl_form,
-            base_form,
-            reading,
-            phonetic,
+            surface: intern::intern_or_cow(&surface),
+            part_of_speech: intern::intern_or_cow(&part_of_speech),
+            infl_type: intern::intern_or_cow(&infl_type),
+            infl_form: intern::intern_or_cow(&infl_form),
+            base_form: intern::intern_or_cow(&base_form),
+            reading: intern::intern_or_cow(&reading),
+            phonetic: intern::intern_or_cow(&phonetic),
             node_type,
         }
     }
@@ -399,18 +405,18 @@ impl Tokenizer {
                         Ok(entries) if !entries.is_empty() => {
                             matched = true;
                             for entry in entries {
-                                // Create user dictionary node
-                                let user_node = Box::new(crate::lattice::UnknownNode::new(
-                                    entry.surface.clone(),
+                                // Create user dictionary node - optimized with string interning
+                                let user_node = Box::new(crate::lattice::UnknownNode::from_dict_entry(
+                                    &entry.surface,
                                     entry.left_id,
                                     entry.right_id,
                                     entry.cost,
-                                    entry.part_of_speech.clone(),
-                                    entry.inflection_type.clone(),
-                                    entry.inflection_form.clone(),
-                                    entry.base_form.clone(),
-                                    entry.reading.clone(),
-                                    entry.phonetic.clone(),
+                                    &entry.part_of_speech,
+                                    &entry.inflection_type,
+                                    &entry.inflection_form,
+                                    &entry.base_form,
+                                    &entry.reading,
+                                    &entry.phonetic,
                                     NodeType::UserDict,
                                 ));
                                 lattice.add(user_node)?;
@@ -427,18 +433,18 @@ impl Tokenizer {
                     Ok(entries) if !entries.is_empty() => {
                         matched = true;
                         for entry in entries {
-                            // Create system dictionary node
-                            let dict_node = Box::new(crate::lattice::UnknownNode::new(
-                                entry.surface.clone(),
+                            // Create system dictionary node - optimized with string interning
+                            let dict_node = Box::new(crate::lattice::UnknownNode::from_dict_entry(
+                                &entry.surface,
                                 entry.left_id,
                                 entry.right_id,
                                 entry.cost,
-                                entry.part_of_speech.clone(),
-                                entry.inflection_type.clone(),
-                                entry.inflection_form.clone(),
-                                entry.base_form.clone(),
-                                entry.reading.clone(),
-                                entry.phonetic.clone(),
+                                &entry.part_of_speech,
+                                &entry.inflection_type,
+                                &entry.inflection_form,
+                                &entry.base_form,
+                                &entry.reading,
+                                &entry.phonetic,
                                 NodeType::SysDict,
                             ));
                             lattice.add(dict_node)?;
@@ -472,25 +478,21 @@ impl Tokenizer {
                     let grouped_surface =
                         self.build_grouped_surface_python_style(text, pos, category)?;
 
-                    // Create unknown word nodes
-                    for entry in unknown_entries {
-                        let base_form = if baseform_unk {
-                            grouped_surface.clone()
-                        } else {
-                            "*".to_string()
-                        };
+                    // Create unknown word nodes - highly optimized to reduce cloning
+                    let base_form_option = if baseform_unk {
+                        Some(grouped_surface.as_str())
+                    } else {
+                        None
+                    };
 
-                        let unknown_node = Box::new(crate::lattice::UnknownNode::new(
+                    for entry in unknown_entries {
+                        let unknown_node = Box::new(crate::lattice::UnknownNode::for_unknown_word(
                             grouped_surface.clone(),
                             entry.left_id,
                             entry.right_id,
                             entry.cost,
-                            entry.part_of_speech.clone(),
-                            "*".to_string(),
-                            "*".to_string(),
-                            base_form,
-                            "*".to_string(),
-                            "*".to_string(),
+                            &entry.part_of_speech,
+                            base_form_option,
                             NodeType::Unknown,
                         ));
 
@@ -577,7 +579,7 @@ impl Tokenizer {
             let c_categories = self.sys_dic.get_char_categories_result(*c)?;
 
             // Python logic: if cate in _cates or any(cate in _compat_cates for _compat_cates in _cates.values())
-            let same_category = c_categories.contains(&category.to_string());
+            let same_category = c_categories.contains(&intern::intern_or_clone(category));
             let compatible = self.is_compatible_category_python_style(category, &c_categories);
 
             if same_category || compatible {
@@ -634,7 +636,7 @@ impl Tokenizer {
         for node in path {
             if wakati {
                 // Wakati mode: return only surface forms
-                tokens.push(TokenizeResult::Surface(node.surface().to_string()));
+                tokens.push(TokenizeResult::Surface(intern::intern_or_clone(node.surface())));
             } else {
                 // Full mode: create Token objects with morphological information
                 let token = match node.node_type() {
