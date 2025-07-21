@@ -8,8 +8,5 @@ __pycache__
 *.so
 *.pyd
 
-*.svg
 perf.*
 *.profile
-
-output/
