@@ -1,3 +1,7 @@
+**FAIR WARNING: This is an experimental project that ended in failure :)**
+
+**DO NOT USE THIS LIBRARY IN PRODUCTION OR ANY SYSTEMS. The entire codebase is written by Claude Code (with human supervision), and Claude Code claims it's "A high-performance Japanese morphological analyzer", however, that is a false claim. According to the benchmark, its performance is not faster than Janome.**
+
 # Runome
 
 A high-performance Japanese morphological analyzer compatible with [Janome](https://github.com/mocobeta/janome), implemented in Rust with Python bindings.
